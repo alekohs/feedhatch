@@ -78,7 +78,7 @@ func TestFetchInvalidRSS(t *testing.T) {
 	t.Cleanup(func() { http.DefaultClient = previousClient })
 
 	result, err := Fetch(Feed{url: "https://example.com/feed"})
-if err == nil {
+	if err == nil {
 		t.Fatal("Fetch() ska returnera ett fel för ogiltig RSS")
 	}
 	if result != nil {
