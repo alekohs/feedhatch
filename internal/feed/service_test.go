@@ -3,10 +3,14 @@ package feed
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"alekohs/feedhatch/internal/store"
 )
 
 func TestFetch(t *testing.T) {
@@ -44,7 +48,7 @@ func TestFetch(t *testing.T) {
 	http.DefaultClient = &client
 	t.Cleanup(func() { http.DefaultClient = previousClient })
 
-	result, err := Fetch(Feed{url: server.URL})
+	result, err := Fetch(store.Feed{URL: server.URL})
 	if err != nil {
 		t.Fatalf("Fetch() returnerade ett fel: %v", err)
 	}
@@ -77,7 +81,7 @@ func TestFetchInvalidRSS(t *testing.T) {
 	}
 	t.Cleanup(func() { http.DefaultClient = previousClient })
 
-	result, err := Fetch(Feed{url: "https://example.com/feed"})
+	result, err := Fetch(store.Feed{URL: "https://example.com/feed"})
 	if err == nil {
 		t.Fatal("Fetch() ska returnera ett fel för ogiltig RSS")
 	}
@@ -91,4 +95,64 @@ type testRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func TestUpdateFeeds(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Testflöde</title>
+    <item>
+      <title>Första inlägget</title>
+      <link>https://example.com/posts/1</link>
+      <guid>https://example.com/posts/1</guid>
+      <description>Innehåll</description>
+      <pubDate>Mon, 02 Jan 2006 15:04:05 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`)
+	}))
+	t.Cleanup(server.Close)
+	previousClient := http.DefaultClient
+	http.DefaultClient = server.Client()
+	t.Cleanup(func() { http.DefaultClient = previousClient })
+
+	s, err := store.OpenPath(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	feedID, err := s.AddFeed(store.Feed{URL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var logs strings.Builder
+	logger := log.New(&logs, "", 0)
+	if err := UpdateFeeds(s, logger); err != nil {
+		t.Fatalf("UpdateFeeds() returnerade ett fel: %v", err)
+	}
+	if logs.String() != server.URL+": 1 new articles\n" {
+		t.Errorf("logg = %q, vill ha en rad med antal nya artiklar", logs.String())
+	}
+	articles, err := s.Articles(feedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(articles) != 1 || articles[0].Title != "Första inlägget" || articles[0].Content != "Innehåll" {
+		t.Fatalf("artiklar = %+v, vill ha det hämtade inlägget", articles)
+	}
+	if articles[0].PublishedAt.IsZero() {
+		t.Error("publiceringsdatum saknas")
+	}
+
+	if err := UpdateFeeds(s, logger); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Errorf("antal anrop = %d, vill ha 1 eftersom intervallet inte har passerat", requests)
+	}
 }

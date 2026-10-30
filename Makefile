@@ -1,4 +1,4 @@
-.PHONY: help clean run test format format-check vet lint package
+.PHONY: help clean clean-db run run-headless run-mock install-service service-logs test format format-check vet lint package
 
 # amd64, arm64
 ARCH ?= amd64
@@ -15,8 +15,30 @@ clean: ## Clean build output and cached files
 	@rm -rf ./bin/
 	@go clean
 
+clean-db: ## Clean db from cache
+	@echo 'Remove db from ~/.cache/feedhatch/*.db'
+	@rm -rf ~/.cache/feedhatch/*.db
+
 run: ## Run application
 	@go run ./cmd/feedhatch/main.go
+
+run-headless: ## Fetch feeds without the TUI and show logs in the terminal
+	@go run ./cmd/feedhatch/main.go -d
+
+run-mock: ## Run application with sample data in a temporary database
+	@go run ./cmd/feedhatch/main.go -mock
+
+install-service: ## Install to ~/.local/bin and (re)start the systemd user service
+	@go build -o ${HOME}/.local/bin/feedhatch ./cmd/feedhatch
+	@mkdir -p ${HOME}/.config/systemd/user
+	@cp init/feedhatch.service ${HOME}/.config/systemd/user/
+	@systemctl --user daemon-reload
+	@systemctl --user enable feedhatch
+	@systemctl --user restart feedhatch
+	@echo 'Installed. Follow logs with `make service-logs`'
+
+service-logs: ## Follow the systemd user service logs
+	@journalctl --user -u feedhatch -f
 
 test: ## Run all tests or a specific one with TEST=./internal/feed
 	@if [ "${TEST}" = "all" ]; then \

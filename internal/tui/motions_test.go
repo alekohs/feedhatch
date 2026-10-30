@@ -8,8 +8,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func motionReader() Model {
-	m := sizedModel()
+func motionReader(t *testing.T) Model {
+	t.Helper()
+	m := sizedModel(t)
 	m.width, m.height = 80, 18
 	var body []string
 	for i := range 80 {
@@ -31,7 +32,7 @@ func TestPageMotions(t *testing.T) {
 		{"space", 11}, {"pgdown", 11}, {"pgup", -11},
 	} {
 		t.Run(test.key, func(t *testing.T) {
-			m := motionReader()
+			m := motionReader(t)
 			m.line = 30
 			m.ensureLineVisible()
 			m = press(m, test.key)
@@ -46,7 +47,7 @@ func TestPageMotions(t *testing.T) {
 }
 
 func TestParagraphMotions(t *testing.T) {
-	m := motionReader()
+	m := motionReader(t)
 	m.feeds[0].articles[0].body = "First line\nSecond line\nThird line\n\n  \nNext paragraph\nContinued\n\nLast paragraph"
 	for _, test := range []struct {
 		name string
@@ -75,7 +76,7 @@ func TestParagraphMotions(t *testing.T) {
 }
 
 func TestParagraphMotionSkipsWrappedRows(t *testing.T) {
-	m := motionReader()
+	m := motionReader(t)
 	m.feeds[0].articles[0].body = strings.Repeat("Long paragraph with wrapped text. ", 30) + "\n\nNext paragraph"
 	m.line = 3
 	m = press(m, "}")
@@ -87,7 +88,7 @@ func TestParagraphMotionSkipsWrappedRows(t *testing.T) {
 }
 
 func TestMotionsExtendVisualSelection(t *testing.T) {
-	m := motionReader()
+	m := motionReader(t)
 	m = press(m, "v", "d", "f")
 	_, count := m.selectedText()
 	if !m.visual || m.anchor != 0 || m.line != 16 || count != 17 {
@@ -105,7 +106,7 @@ func TestScreenMotions(t *testing.T) {
 		want int
 	}{{"H", 15}, {"M", 20}, {"L", 25}} {
 		t.Run(test.key, func(t *testing.T) {
-			m := motionReader()
+			m := motionReader(t)
 			m.line, m.scroll = 20, 15
 			m = press(m, "v", test.key)
 			if m.line != test.want || m.scroll != 15 || m.anchor != 20 || !m.visual {
@@ -116,7 +117,7 @@ func TestScreenMotions(t *testing.T) {
 }
 
 func TestCenterLine(t *testing.T) {
-	m := motionReader()
+	m := motionReader(t)
 	m.line = 30
 	m.ensureLineVisible()
 	before := m.scroll
@@ -137,7 +138,7 @@ func TestCenterLine(t *testing.T) {
 }
 
 func TestCenterSequenceInterrupted(t *testing.T) {
-	m := motionReader()
+	m := motionReader(t)
 	m.line = 30
 	m.ensureLineVisible()
 	m = press(m, "z", "k")
@@ -154,7 +155,7 @@ func TestCenterSequenceInterrupted(t *testing.T) {
 }
 
 func TestDocumentStartAndEndMotions(t *testing.T) {
-	m := motionReader()
+	m := motionReader(t)
 	_, right, _ := m.dimensions()
 	last := len(m.readerLines(right-6)) - 1
 	m = press(m, "v", "G")
@@ -167,7 +168,7 @@ func TestDocumentStartAndEndMotions(t *testing.T) {
 		t.Fatal("g and gg should return to the beginning without leaving visual mode")
 	}
 	// The same shortcuts retain their existing list behavior.
-	m = press(sizedModel(), "G")
+	m = press(sizedModel(t), "G")
 	if m.feedIndex != len(m.feeds)-1 {
 		t.Fatal("G should select the last feed")
 	}
@@ -182,7 +183,7 @@ func TestDocumentStartAndEndMotions(t *testing.T) {
 }
 
 func TestPagingHelpAndClamping(t *testing.T) {
-	m := motionReader()
+	m := motionReader(t)
 	m = press(m, "?", "d")
 	if m.helpScroll != 5 {
 		t.Fatalf("help scroll = %d, want 5", m.helpScroll)
@@ -198,7 +199,7 @@ func TestPagingHelpAndClamping(t *testing.T) {
 }
 
 func TestMotionKeysRemainTextInForms(t *testing.T) {
-	m := press(sizedModel(), "a", "enter")
+	m := press(sizedModel(t), "a", "enter")
 	m = press(m, "d", "u", "f", "b", "{", "}", "H", "M", "L", "z", "z")
 	if m.form.values[1] != "dufb{}HMLzz" || m.reading || m.pendingZ {
 		t.Fatal("motion keys must remain ordinary text in forms")

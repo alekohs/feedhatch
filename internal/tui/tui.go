@@ -3,18 +3,24 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+
+	"alekohs/feedhatch/internal/store"
 )
 
 type article struct {
+	id                int64
 	title, date, body string
 	unread            bool
 }
 
 type subscription struct {
+	id, interval        int64
 	name, url, category string
 	articles            []article
 }
@@ -27,13 +33,14 @@ const (
 )
 
 type form struct {
-	categoryOnly bool
-	field        int
-	values       [3]string // URL, name, category
-	err          string
+	single bool // edit only values[field] of the selected feed
+	field  int
+	values [4]string // URL, name, category, interval
+	err    string
 }
 
 type Model struct {
+	store         *store.Store
 	width, height int
 	feeds         []subscription
 	feedIndex     int
@@ -53,14 +60,103 @@ type Model struct {
 	search        searchState
 }
 
-func New() Model {
-	return Model{feeds: mockSubscriptions()}
+// FetchedMsg tells the TUI that the worker finished a round and the store may have new articles.
+type FetchedMsg struct{ Err error }
+
+func New(st *store.Store) (Model, error) {
+	m := Model{store: st}
+	if err := m.load(); err != nil {
+		return Model{}, err
+	}
+	return m, nil
+}
+
+func (m *Model) load() error {
+	feeds, err := m.store.Feeds()
+	if err != nil {
+		return err
+	}
+
+	m.feeds = nil
+	for _, f := range feeds {
+		articles, err := m.store.Articles(f.ID)
+		if err != nil {
+			return err
+		}
+		sub := subscription{id: f.ID, interval: f.Interval, name: f.Name, url: f.URL, category: f.Category}
+		for _, a := range articles {
+			sub.articles = append(sub.articles, article{
+				id: a.ID, title: a.Title, date: formatDate(a.PublishedAt), body: a.Content, unread: !a.Read,
+			})
+		}
+		m.feeds = append(m.feeds, sub)
+	}
+	return nil
+}
+
+// reload keeps the selected feed and article, since new articles shift their positions.
+func (m *Model) reload() error {
+	var feedID, articleID int64
+	if len(m.feeds) > 0 {
+		feedID = m.feeds[m.feedIndex].id
+	}
+	if a := m.currentArticle(); a != nil {
+		articleID = a.id
+	}
+	if err := m.load(); err != nil {
+		return err
+	}
+
+	m.feedIndex, m.articleIndex = clamp(m.feedIndex, len(m.feeds)), 0
+	for i, f := range m.feeds {
+		if f.id == feedID {
+			m.feedIndex = i
+		}
+	}
+	if len(m.feeds) > 0 {
+		for i, a := range m.feeds[m.feedIndex].articles {
+			if a.id == articleID {
+				m.articleIndex = i
+			}
+		}
+	}
+	return nil
+}
+
+var months = []string{"jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"}
+
+func formatDate(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	t = t.Local()
+	now := time.Now()
+	switch {
+	case sameDay(t, now):
+		return "Idag · " + t.Format("15:04")
+	case sameDay(t, now.AddDate(0, 0, -1)):
+		return "Igår · " + t.Format("15:04")
+	}
+	return fmt.Sprintf("%d %s · %s", t.Day(), months[t.Month()-1], t.Format("15:04"))
+}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }
 
 func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case FetchedMsg:
+		if err := m.reload(); err != nil {
+			m.status = "Kunde inte läsa in flödena: " + err.Error()
+		} else if msg.Err != nil {
+			m.status = "Uppdatering misslyckades: " + strings.ReplaceAll(msg.Err.Error(), "\n", "; ")
+		}
+		m.ensureLineVisible()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Wrapped row numbers change on resize; do not silently copy a new range.
@@ -147,14 +243,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.terminalTheme = !m.terminalTheme
 		case "a":
 			m.form = &form{}
-			m.form.values[2] = "Övrigt"
+			m.form.values[2], m.form.values[3] = "Övrigt", "15"
 			if len(m.feeds) > 0 {
 				m.form.values[2] = m.feeds[m.feedIndex].category
 			}
 		case "c":
 			if len(m.feeds) > 0 {
-				m.form = &form{categoryOnly: true, field: 2}
+				m.form = &form{single: true, field: 2}
 				m.form.values[2] = m.feeds[m.feedIndex].category
+			}
+		case "i":
+			if len(m.feeds) > 0 {
+				m.form = &form{single: true, field: 3}
+				m.form.values[3] = strconv.FormatInt(m.feeds[m.feedIndex].interval, 10)
 			}
 		case "h", "left", "esc":
 			if m.visual {
@@ -194,6 +295,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "m":
 			if a := m.currentArticle(); a != nil {
 				a.unread = !a.unread
+				m.saveRead(a)
 			}
 		case "v":
 			if m.reading {
@@ -221,8 +323,17 @@ func (m *Model) currentArticle() *article {
 
 func (m *Model) openArticle() {
 	if a := m.currentArticle(); a != nil {
-		a.unread = false
+		if a.unread {
+			a.unread = false
+			m.saveRead(a)
+		}
 		m.reading, m.scroll, m.line, m.visual = true, 0, 0, false
+	}
+}
+
+func (m *Model) saveRead(a *article) {
+	if err := m.store.SetRead(a.id, !a.unread); err != nil {
+		m.status = "Kunde inte spara läsläget: " + err.Error()
 	}
 }
 
@@ -303,12 +414,12 @@ func (m *Model) updateForm(msg tea.KeyPressMsg) {
 	case "esc":
 		m.form = nil
 	case "tab", "down":
-		if !f.categoryOnly {
-			f.field = (f.field + 1) % 3
+		if !f.single {
+			f.field = (f.field + 1) % len(f.values)
 		}
 	case "shift+tab", "up":
-		if !f.categoryOnly {
-			f.field = (f.field + 2) % 3
+		if !f.single {
+			f.field = (f.field + len(f.values) - 1) % len(f.values)
 		}
 	case "backspace":
 		runes := []rune(f.values[f.field])
@@ -319,7 +430,7 @@ func (m *Model) updateForm(msg tea.KeyPressMsg) {
 	case "ctrl+u":
 		f.values[f.field], f.err = "", ""
 	case "enter":
-		if !f.categoryOnly && f.field < 2 {
+		if !f.single && f.field < len(f.values)-1 {
 			f.field++
 			return
 		}
@@ -335,9 +446,25 @@ func (m *Model) saveForm() {
 	if category == "" {
 		category = "Övrigt"
 	}
-	if f.categoryOnly {
+	interval, err := strconv.ParseInt(strings.TrimSpace(f.values[3]), 10, 64)
+	if (!f.single || f.field == 3) && (err != nil || interval < 1) {
+		f.err, f.field = "Ange intervallet i hela minuter, minst 1.", 3
+		return
+	}
+	switch {
+	case f.single && f.field == 2:
+		if err := m.store.SetCategory(m.feeds[m.feedIndex].id, category); err != nil {
+			f.err = "Kunde inte spara kategorin: " + err.Error()
+			return
+		}
 		m.feeds[m.feedIndex].category = category
-	} else {
+	case f.single:
+		if err := m.store.SetInterval(m.feeds[m.feedIndex].id, interval); err != nil {
+			f.err = "Kunde inte spara intervallet: " + err.Error()
+			return
+		}
+		m.feeds[m.feedIndex].interval = interval
+	default:
 		address := strings.TrimSpace(f.values[0])
 		u, err := url.Parse(address)
 		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
@@ -348,7 +475,18 @@ func (m *Model) saveForm() {
 		if name == "" {
 			name = u.Hostname()
 		}
-		m.feeds = append(m.feeds, subscription{name: name, url: address, category: category})
+		for _, feed := range m.feeds {
+			if feed.url == address {
+				f.err, f.field = "Flödet finns redan.", 0
+				return
+			}
+		}
+		id, err := m.store.AddFeed(store.Feed{URL: address, Name: name, Category: category, Interval: interval})
+		if err != nil {
+			f.err, f.field = "Kunde inte spara flödet: "+err.Error(), 0
+			return
+		}
+		m.feeds = append(m.feeds, subscription{id: id, interval: interval, name: name, url: address, category: category})
 		m.feedIndex, m.articleIndex = len(m.feeds)-1, 0
 	}
 	m.form, m.focus, m.reading, m.scroll, m.visual = nil, feedsPanel, false, 0, false

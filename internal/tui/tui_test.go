@@ -2,16 +2,32 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"alekohs/feedhatch/internal/store"
 )
 
-func sizedModel() Model {
-	m := New()
+func sizedModel(t *testing.T) Model {
+	t.Helper()
+	st, err := store.OpenPath(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.SeedMock(); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(st)
+	if err != nil {
+		t.Fatal(err)
+	}
 	m.width, m.height = 100, 28
 	return m
 }
@@ -46,7 +62,7 @@ func paste(m Model, text string) Model {
 }
 
 func TestNavigationAndReadStatus(t *testing.T) {
-	m := sizedModel()
+	m := sizedModel(t)
 	before := unreadCount(m.feeds[0])
 	m = press(m, "l")
 	if m.focus != articlesPanel || m.reading {
@@ -74,7 +90,7 @@ func TestNavigationAndReadStatus(t *testing.T) {
 }
 
 func TestVisualSelectionAndYank(t *testing.T) {
-	m := press(sizedModel(), "l", "enter", "j", "v", "j", "j")
+	m := press(sizedModel(t), "l", "enter", "j", "v", "j", "j")
 	_, right, _ := m.dimensions()
 	lines := m.readerLines(right - 6)
 	text, count := m.selectedText()
@@ -93,7 +109,7 @@ func TestVisualSelectionAndYank(t *testing.T) {
 }
 
 func TestVisualSelectionBackwardsAndEscape(t *testing.T) {
-	m := press(sizedModel(), "l", "enter", "j", "j", "v", "k", "k")
+	m := press(sizedModel(t), "l", "enter", "j", "j", "v", "k", "k")
 	start, end := m.selectionRange()
 	if start != 0 || end != 2 {
 		t.Fatalf("backwards selection = [%d, %d], expected [0, 2]", start, end)
@@ -109,7 +125,7 @@ func TestVisualSelectionBackwardsAndEscape(t *testing.T) {
 }
 
 func TestReaderScrollingAndResize(t *testing.T) {
-	m := sizedModel()
+	m := sizedModel(t)
 	m.width, m.height = 60, 18
 	m = press(m, "l", "enter", "v", "G")
 	if m.scroll == 0 || m.scroll != m.maxScroll() {
@@ -127,11 +143,11 @@ func TestReaderScrollingAndResize(t *testing.T) {
 }
 
 func TestAddFeedAndValidation(t *testing.T) {
-	m := sizedModel()
+	m := sizedModel(t)
 	initial := len(m.feeds)
 	m = press(m, "a")
 	m = paste(m, "not a URL")
-	m = press(m, "enter", "enter", "enter")
+	m = press(m, "enter", "enter", "enter", "enter")
 	if m.form == nil || m.form.err == "" || len(m.feeds) != initial {
 		t.Fatal("invalid URLs must not create a subscription")
 	}
@@ -141,12 +157,20 @@ func TestAddFeedAndValidation(t *testing.T) {
 	m = paste(m, "Mitt flöde")
 	m = press(m, "enter", "ctrl+u")
 	m = paste(m, "Läsning")
+	m = press(m, "enter", "ctrl+u")
+	m = paste(m, "0")
+	m = press(m, "enter")
+	if m.form == nil || m.form.field != 3 || m.form.err == "" {
+		t.Fatal("an interval below 1 minute must be rejected")
+	}
+	m = press(m, "ctrl+u")
+	m = paste(m, "30")
 	m = press(m, "enter")
 	if m.form != nil || len(m.feeds) != initial+1 {
 		t.Fatal("valid form should create a feed and close")
 	}
 	feed := m.feeds[m.feedIndex]
-	if feed.name != "Mitt flöde" || feed.category != "Läsning" || len(feed.articles) != 0 {
+	if feed.name != "Mitt flöde" || feed.category != "Läsning" || feed.interval != 30 || len(feed.articles) != 0 {
 		t.Fatalf("unexpected new feed: %+v", feed)
 	}
 	m = press(m, "l", "enter", "j", "m", "v", "y")
@@ -156,7 +180,7 @@ func TestAddFeedAndValidation(t *testing.T) {
 }
 
 func TestCategoryAndGroupedNavigation(t *testing.T) {
-	m := press(sizedModel(), "c", "ctrl+u")
+	m := press(sizedModel(t), "c", "ctrl+u")
 	m = paste(m, "Design")
 	m = press(m, "enter")
 	if m.feeds[0].category != "Design" {
@@ -174,7 +198,7 @@ func TestCategoryAndGroupedNavigation(t *testing.T) {
 }
 
 func TestFormHandlesUnicodeAndDoesNotRunShortcuts(t *testing.T) {
-	m := press(sizedModel(), "a", "enter")
+	m := press(sizedModel(t), "a", "enter")
 	m = paste(m, "Åäö")
 	m = press(m, "backspace", "q", "t", "v")
 	if m.form.values[1] != "Åäqtv" || m.terminalTheme || m.visual {
@@ -191,7 +215,7 @@ func TestFormHandlesUnicodeAndDoesNotRunShortcuts(t *testing.T) {
 }
 
 func TestTerminalThemeInheritsTerminalDefaults(t *testing.T) {
-	m := press(sizedModel(), "t")
+	m := press(sizedModel(t), "t")
 	v := m.View()
 	if v.BackgroundColor != nil || v.ForegroundColor != nil || !m.terminalTheme {
 		t.Fatal("terminal theme must inherit terminal foreground and background")
@@ -203,7 +227,7 @@ func TestTerminalThemeInheritsTerminalDefaults(t *testing.T) {
 }
 
 func TestUnreadBadgeStaysOnFeedRow(t *testing.T) {
-	m := sizedModel()
+	m := sizedModel(t)
 	for _, width := range []int{60, 80, 100, 160} {
 		m.width = width
 		for _, line := range strings.Split(ansi.Strip(m.View().Content), "\n") {
@@ -218,7 +242,7 @@ func TestUnreadBadgeStaysOnFeedRow(t *testing.T) {
 }
 
 func TestSmallTerminalKeepsActiveFormFieldVisible(t *testing.T) {
-	m := sizedModel()
+	m := sizedModel(t)
 	m.width, m.height = 60, 14
 	m = press(m, "a", "tab", "tab", "ctrl+u")
 	m = paste(m, "Min kategori")
@@ -228,7 +252,7 @@ func TestSmallTerminalKeepsActiveFormFieldVisible(t *testing.T) {
 }
 
 func TestSmallTerminalHelpCanScroll(t *testing.T) {
-	m := sizedModel()
+	m := sizedModel(t)
 	m.width, m.height = 60, 14
 	m = press(m, "?", "G")
 	if !strings.Contains(ansi.Strip(m.View().Content), "OSC52") {
@@ -244,7 +268,7 @@ func TestViewsFitTerminal(t *testing.T) {
 	for _, size := range [][2]int{{100, 28}, {60, 14}, {80, 24}, {160, 48}, {30, 8}, {1, 1}} {
 		for _, state := range []string{"feeds", "reader", "visual", "form", "category", "help", "terminal", "search", "search-results"} {
 			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], state), func(t *testing.T) {
-				m := sizedModel()
+				m := sizedModel(t)
 				m.width, m.height = size[0], size[1]
 				switch state {
 				case "reader":
@@ -276,5 +300,56 @@ func TestViewsFitTerminal(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestChangeInterval(t *testing.T) {
+	m := press(sizedModel(t), "i")
+	if m.form == nil || m.form.values[3] != "15" {
+		t.Fatal("i should open the interval form with the current value")
+	}
+	m = press(m, "ctrl+u")
+	m = paste(m, "abc")
+	m = press(m, "enter")
+	if m.form == nil || m.form.err == "" {
+		t.Fatal("a non-numeric interval must be rejected")
+	}
+	m = press(m, "ctrl+u")
+	m = paste(m, "60")
+	m = press(m, "enter")
+	if m.form != nil || m.feeds[m.feedIndex].interval != 60 {
+		t.Fatal("a valid interval should be saved")
+	}
+
+	feeds, err := m.store.Feeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if feeds[m.feedIndex].Interval != 60 {
+		t.Fatalf("stored interval = %d, want 60", feeds[m.feedIndex].Interval)
+	}
+}
+
+func TestFetchedMsgReloadsAndKeepsSelection(t *testing.T) {
+	m := press(sizedModel(t), "l", "j")
+	feedID, articleID := m.feeds[m.feedIndex].id, m.currentArticle().id
+
+	_, err := m.store.SaveArticles(feedID, []store.Article{{GUID: "new", Title: "Ny artikel", PublishedAt: time.Now()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := m.Update(FetchedMsg{})
+	m = updated.(Model)
+
+	if m.feeds[m.feedIndex].articles[0].title != "Ny artikel" {
+		t.Fatal("the new article should be loaded first")
+	}
+	if m.currentArticle().id != articleID {
+		t.Fatal("the selected article should stay selected after a reload")
+	}
+
+	updated, _ = m.Update(FetchedMsg{Err: fmt.Errorf("a: down\nb: down")})
+	if status := updated.(Model).status; !strings.Contains(status, "a: down; b: down") {
+		t.Fatalf("status = %q, want both errors on one line", status)
 	}
 }

@@ -9,8 +9,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func searchReader() Model {
-	m := motionReader()
+func searchReader(t *testing.T) Model {
+	t.Helper()
+	m := motionReader(t)
 	m.feeds[0].articles[0].body = "First needle\nAnother line\nNEEDLE twice needle\n\nLast needle\nÅÄÖ are letters\nLiteral [a.*] text"
 	return m
 }
@@ -22,7 +23,7 @@ func searchFor(m Model, query string) Model {
 }
 
 func TestSearchAndRepeatWrap(t *testing.T) {
-	m := searchFor(searchReader(), "needle")
+	m := searchFor(searchReader(t), "needle")
 	if m.search.active || m.line != 3 || m.search.query != "needle" {
 		t.Fatal("search should close the prompt and jump to the first matching row")
 	}
@@ -46,7 +47,7 @@ func TestSearchAndRepeatWrap(t *testing.T) {
 }
 
 func TestSearchLiteralAndUnicode(t *testing.T) {
-	m := searchFor(searchReader(), "åäö")
+	m := searchFor(searchReader(t), "åäö")
 	if m.line != 8 {
 		t.Fatal("search should match Unicode text case-insensitively")
 	}
@@ -57,7 +58,7 @@ func TestSearchLiteralAndUnicode(t *testing.T) {
 }
 
 func TestSearchMissingQueryAndNoMatch(t *testing.T) {
-	m := press(searchReader(), "n")
+	m := press(searchReader(t), "n")
 	if !strings.Contains(m.status, "No previous search") || m.line != 0 {
 		t.Fatal("n without a query should explain how to start searching")
 	}
@@ -72,7 +73,7 @@ func TestSearchMissingQueryAndNoMatch(t *testing.T) {
 }
 
 func TestSearchCancelAndEmptyRepeat(t *testing.T) {
-	m := searchFor(searchReader(), "needle")
+	m := searchFor(searchReader(t), "needle")
 	m = press(m, "/")
 	m = paste(m, "another query")
 	m = press(m, "esc")
@@ -86,7 +87,7 @@ func TestSearchCancelAndEmptyRepeat(t *testing.T) {
 }
 
 func TestSearchInputDoesNotTriggerShortcuts(t *testing.T) {
-	m := press(searchReader(), "/", "q", "d", "u", "v", "n", "z", "z", "?")
+	m := press(searchReader(t), "/", "q", "d", "u", "v", "n", "z", "z", "?")
 	if m.search.input != "qduvnzz?" || m.help || m.visual || m.pendingZ || m.line != 0 {
 		t.Fatal("while searching, shortcuts must be entered as ordinary text")
 	}
@@ -103,7 +104,7 @@ func TestSearchInputDoesNotTriggerShortcuts(t *testing.T) {
 }
 
 func TestSearchExtendsVisualSelectionAndCopiesPlainText(t *testing.T) {
-	m := press(searchReader(), "v")
+	m := press(searchReader(t), "v")
 	m = searchFor(m, "needle")
 	m = press(m, "n")
 	text, count := m.selectedText()
@@ -128,7 +129,7 @@ func TestSearchHighlightPreservesText(t *testing.T) {
 }
 
 func TestSearchRecomputesMatchesAfterResize(t *testing.T) {
-	m := searchReader()
+	m := searchReader(t)
 	m.feeds[0].articles[0].body = strings.Repeat("Some wrapped text. ", 40) + "\nLast needle"
 	m = searchFor(m, "needle")
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -142,7 +143,7 @@ func TestSearchRecomputesMatchesAfterResize(t *testing.T) {
 }
 
 func TestSearchIsScopedToReader(t *testing.T) {
-	m := press(sizedModel(), "/", "n", "N")
+	m := press(sizedModel(t), "/", "n", "N")
 	if m.search.active || m.feedIndex != 0 {
 		t.Fatal("reader search should not intercept feed navigation")
 	}

@@ -1,13 +1,28 @@
 # feedhatch
 Hatch your feeds. Catch every update.
 
-A keyboard-driven RSS reader built with Bubble Tea. The interface currently uses
-mocked feeds and articles: no RSS is fetched and changes are not saved between
-sessions.
+A keyboard-driven RSS reader built with Bubble Tea. Feeds, categories and
+read state are saved in `~/.cache/feedhatch/feeds.db`. Each feed is fetched on
+its own interval (default 15 minutes), checked once a minute.
 
 ```sh
-go run ./cmd/feedhatch
-go test ./...
+make run       # your own feeds
+make run-mock  # sample data in a temporary database, nothing is fetched
+make run-headless  # only fetch feeds, no TUI; logs in the terminal
+make test
+```
+
+## Running as a service
+
+`make install-service` builds feedhatch into `~/.local/bin`, installs
+`init/feedhatch.service` as a systemd user service and starts it. It runs
+`feedhatch -daemon` in the background, starts at login, and restarts if it
+crashes. Run it again after pulling changes to update the binary.
+
+```sh
+make service-logs                 # follow the logs
+systemctl --user stop feedhatch
+systemctl --user disable feedhatch
 ```
 
 ## Requirements
@@ -35,15 +50,16 @@ go test ./...
 | `n` / `N` | Jump to the next/previous matching text row, wrapping at the edges |
 | `v` | Start/stop line selection in the reader |
 | `y` | Copy selected lines, or the current line if nothing is selected |
-| `a` | Add feed: URL, optional name and category |
+| `a` | Add feed: URL, optional name, category and update interval (default 15 minutes) |
 | `c` | Move the selected feed to an existing or new category |
+| `i` | Change how often the selected feed updates, in minutes |
 | `m` | Toggle read/unread for the selected article |
 | `t` | Toggle base theme/terminal colors |
 | `?` | Show/close help |
 | `q` / `Ctrl+c` | Quit (`Ctrl+c` also works in forms) |
 
 In forms, `Tab` switches field, `Enter` moves on/saves, `Ctrl+u` clears the
-current field and `Esc` cancels. A new feed has no articles in mock mode.
+current field and `Esc` cancels. A new feed gets its articles on the next fetch round, within a minute.
 Articles are marked as read when opened. `●` indicates unread content.
 
 Reader motions also extend an active `v` selection. For example, `v` then `}`

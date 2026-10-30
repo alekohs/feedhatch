@@ -34,8 +34,10 @@ func (m Model) View() tea.View {
 	switch {
 	case m.form != nil:
 		title = "Lägg till flöde"
-		if m.form.categoryOnly {
+		if m.form.single && m.form.field == 2 {
 			title = "Ändra kategori"
+		} else if m.form.single {
+			title = "Ändra intervall"
 		}
 		right = m.formContent(rightWidth-4, panelHeight-4)
 	case m.help:
@@ -48,7 +50,7 @@ func (m Model) View() tea.View {
 	}
 	right = m.renderPanel(title, right, rightWidth, panelHeight,
 		m.focus == articlesPanel || m.form != nil || m.help)
-	footer := "h/l panel  j/k välj  enter öppna  a lägg till  c kategori  ? hjälp  q avsluta"
+	footer := "h/l panel  j/k välj  enter öppna  a lägg till  c kategori  i intervall  ? hjälp  q avsluta"
 	if m.reading {
 		footer = "j/k line  {/} paragraph  d/u half-page  f/b page  v select  y copy  ? help"
 	} else if m.form != nil {
@@ -221,8 +223,10 @@ func (m Model) reader(width, height int) string {
 func (m Model) formContent(width, height int) string {
 	f, p := m.form, m.palette()
 	intro := "Lägg till en prenumeration. Ingen hämtning sker i mockläget."
-	if f.categoryOnly {
+	if f.single && f.field == 2 {
 		intro = "Skriv en befintlig eller ny kategori. Flödet flyttas när du sparar."
+	} else if f.single {
+		intro = "Hur ofta flödet ska uppdateras, i minuter."
 	}
 	if f.err != "" {
 		intro = f.err
@@ -231,9 +235,9 @@ func (m Model) formContent(width, height int) string {
 	// Split the wrapped introduction so viewport positions count terminal rows.
 	lines = strings.Split(strings.Join(lines, "\n"), "\n")
 	activeLine := 0
-	labels := []string{"URL", "Namn (valfritt)", "Kategori"}
+	labels := []string{"URL", "Namn (valfritt)", "Kategori", "Intervall (minuter)"}
 	for i, label := range labels {
-		if f.categoryOnly && i != 2 {
+		if f.single && i != f.field {
 			continue
 		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(p.muted).Render(label))
@@ -311,7 +315,7 @@ v  Toggle line selection; motions extend it
 y  Copy selection (otherwise current row)
 Esc cancels selection before leaving reader
 
-a  Add feed · c change category
+a  Add feed · c change category · i change interval
 m  Toggle read/unread · t switch theme
 ? / Esc close help · q quit
 Ctrl+c quits even while editing forms

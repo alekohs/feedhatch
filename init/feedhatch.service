@@ -1,0 +1,9 @@
+[Unit]
+Description=feedhatch feed fetcher
+
+[Service]
+ExecStart=%h/.local/bin/feedhatch -daemon
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
