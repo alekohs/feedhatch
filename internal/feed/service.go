@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -45,8 +44,8 @@ func Fetch(feed store.Feed) (*gofeed.Feed, error) {
 }
 
 // UpdateFeeds fetches every feed whose interval has passed, saves its new articles
-// and logs the outcome of each fetched feed.
-func UpdateFeeds(s *store.Store, logger *log.Logger) error {
+// and reports the outcome of each fetched feed.
+func UpdateFeeds(s *store.Store, report func(feed string, added int, err error)) error {
 	feeds, err := s.Feeds()
 	if err != nil {
 		return err
@@ -64,17 +63,16 @@ func UpdateFeeds(s *store.Store, logger *log.Logger) error {
 			name = f.URL
 		}
 
+		var added int
 		result, err := Fetch(f)
 		if err == nil {
-			var added int
 			added, err = s.SaveArticles(f.ID, articles(result))
-			if err == nil {
-				err = s.SetFetched(f.ID, now.Unix())
-				logger.Printf("%s: %d new articles", name, added)
-			}
 		}
+		if err == nil {
+			err = s.SetFetched(f.ID, now.Unix())
+		}
+		report(name, added, err)
 		if err != nil {
-			logger.Printf("%s: %v", name, err)
 			errs = append(errs, fmt.Errorf("%s: %w", f.URL, err))
 		}
 	}

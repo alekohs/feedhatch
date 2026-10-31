@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"alekohs/feedhatch/internal/server"
 	"alekohs/feedhatch/internal/store"
 )
 
@@ -24,7 +25,7 @@ func sizedModel(t *testing.T) Model {
 	if err := st.SeedMock(); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(st)
+	m, err := New(st, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,5 +352,102 @@ func TestFetchedMsgReloadsAndKeepsSelection(t *testing.T) {
 	updated, _ = m.Update(FetchedMsg{Err: fmt.Errorf("a: down\nb: down")})
 	if status := updated.(Model).status; !strings.Contains(status, "a: down; b: down") {
 		t.Fatalf("status = %q, want both errors on one line", status)
+	}
+}
+
+func TestSavedChangesAreAnnounced(t *testing.T) {
+	m := sizedModel(t)
+	var events []server.Event
+	m.announce = func(e server.Event) { events = append(events, e) }
+
+	m = press(m, "l", "enter", "h", "m") // open (read), then toggle back to unread
+	m = press(m, "c", "ctrl+u")
+	m = paste(m, "Ny kategori")
+	m = press(m, "enter", "i", "ctrl+u")
+	m = paste(m, "45")
+	m = press(m, "enter", "a")
+	m = paste(m, "https://example.org/rss")
+	m = press(m, "enter", "enter", "enter", "enter")
+
+	var types []string
+	for _, e := range events {
+		types = append(types, e.Type)
+	}
+	want := []string{"read", "unread", "category", "interval", "feed_added"}
+	if strings.Join(types, ",") != strings.Join(want, ",") {
+		t.Fatalf("announced %v, want %v", types, want)
+	}
+	if events[0].Feed != "Arch Linux" || events[0].Article == "" || events[0].ArticleID == 0 {
+		t.Fatalf("read event = %+v, want feed and article", events[0])
+	}
+	if events[2].Category != "Ny kategori" || events[3].Interval != 45 || events[4].Feed != "example.org" {
+		t.Fatalf("unexpected events: %+v", events[2:])
+	}
+}
+
+func TestDeleteFeedNeedsConfirmation(t *testing.T) {
+	m := sizedModel(t)
+	var events []server.Event
+	m.announce = func(e server.Event) { events = append(events, e) }
+	initial := len(m.feeds)
+	name := m.feeds[m.feedIndex].name
+
+	m = press(m, "D", "n")
+	if len(m.feeds) != initial || m.pendingDelete {
+		t.Fatal("any key other than y should cancel the deletion")
+	}
+
+	m = press(m, "D", "y")
+	if len(m.feeds) != initial-1 {
+		t.Fatalf("got %d feeds, want %d", len(m.feeds), initial-1)
+	}
+	for _, feed := range m.feeds {
+		if feed.name == name {
+			t.Fatalf("%s should be deleted", name)
+		}
+	}
+	if len(events) != 1 || events[0].Type != "feed_deleted" || events[0].Feed != name {
+		t.Fatalf("events = %+v, want one feed_deleted for %s", events, name)
+	}
+
+	stored, err := m.store.Feeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != initial-1 {
+		t.Fatalf("store has %d feeds, want %d", len(stored), initial-1)
+	}
+}
+
+func TestMarkFeedRead(t *testing.T) {
+	m := sizedModel(t)
+	var events []server.Event
+	m.announce = func(e server.Event) { events = append(events, e) }
+	feed := m.feeds[m.feedIndex]
+	if unreadCount(feed) == 0 {
+		t.Fatal("the first mock feed should start with unread articles")
+	}
+
+	m = press(m, "A")
+	if unreadCount(m.feeds[m.feedIndex]) != 0 {
+		t.Fatal("A should mark every article in the feed as read")
+	}
+	if len(events) != 1 || events[0].Type != "feed_read" || events[0].Feed != feed.name {
+		t.Fatalf("events = %+v, want one feed_read for %s", events, feed.name)
+	}
+
+	articles, err := m.store.Articles(feed.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range articles {
+		if !a.Read {
+			t.Fatalf("%q should be stored as read", a.Title)
+		}
+	}
+
+	m = press(m, "A")
+	if len(events) != 1 || !strings.Contains(m.status, "Inga olästa") {
+		t.Fatalf("a feed without unread articles should not announce again, status = %q", m.status)
 	}
 }

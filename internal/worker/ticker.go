@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"alekohs/feedhatch/internal/feed"
@@ -10,13 +9,13 @@ import (
 )
 
 // Run updates due feeds right away and then every minute until ctx is cancelled.
-// Each fetched feed is logged to logger; done is called after each round with any fetch errors.
-func Run(ctx context.Context, s *store.Store, logger *log.Logger, done func(error)) {
+// report is called for each fetched feed; done is called after each round with any fetch errors.
+func Run(ctx context.Context, s *store.Store, report func(feed string, added int, err error), done func(error)) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
 	for {
-		done(feed.UpdateFeeds(s, logger))
+		done(feed.UpdateFeeds(s, report))
 
 		select {
 		case <-ctx.Done():

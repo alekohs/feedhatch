@@ -3,7 +3,6 @@ package feed
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -130,13 +129,15 @@ func TestUpdateFeeds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var logs strings.Builder
-	logger := log.New(&logs, "", 0)
-	if err := UpdateFeeds(s, logger); err != nil {
+	var reports []string
+	report := func(feed string, added int, err error) {
+		reports = append(reports, fmt.Sprintf("%s: %d %v", feed, added, err))
+	}
+	if err := UpdateFeeds(s, report); err != nil {
 		t.Fatalf("UpdateFeeds() returnerade ett fel: %v", err)
 	}
-	if logs.String() != server.URL+": 1 new articles\n" {
-		t.Errorf("logg = %q, vill ha en rad med antal nya artiklar", logs.String())
+	if len(reports) != 1 || reports[0] != server.URL+": 1 <nil>" {
+		t.Errorf("rapporter = %q, vill ha en rad med antal nya artiklar", reports)
 	}
 	articles, err := s.Articles(feedID)
 	if err != nil {
@@ -149,7 +150,7 @@ func TestUpdateFeeds(t *testing.T) {
 		t.Error("publiceringsdatum saknas")
 	}
 
-	if err := UpdateFeeds(s, logger); err != nil {
+	if err := UpdateFeeds(s, report); err != nil {
 		t.Fatal(err)
 	}
 	if requests != 1 {

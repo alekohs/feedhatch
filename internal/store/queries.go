@@ -23,6 +23,20 @@ func (s *Store) AddFeed(f Feed) (int64, error) {
 	return id, nil
 }
 
+func (s *Store) RemoveFeed(f Feed) (bool, error) {
+	res, err := s.db.Exec("DELETE FROM feeds WHERE id = $1", f.ID)
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return rows > 0, nil
+}
+
 func (s *Store) Feeds() ([]Feed, error) {
 	rows, err := s.db.Query("SELECT id, url, name, category, interval, COALESCE(fetched_at, 0) FROM feeds ORDER BY id")
 	if err != nil {
@@ -106,6 +120,11 @@ func (s *Store) SetRead(articleID int64, read bool) error {
 	return err
 }
 
+func (s *Store) SetFeedRead(feedID int64, read bool) error {
+	_, err := s.db.Exec("UPDATE articles SET read = $1 WHERE feed_id= $2", read, feedID)
+	return err
+}
+
 // SetFetched set fetched at for feed
 //
 // feedID the id of the feed
@@ -118,6 +137,12 @@ func (s *Store) SetFetched(feedID int64, time int64) error {
 
 func (s *Store) SetInterval(feedID int64, interval int64) error {
 	_, err := s.db.Exec("UPDATE feeds SET interval = $1 WHERE id = $2", interval, feedID)
+	return err
+}
+
+// DeleteFeed removes the feed; its articles are removed with it (ON DELETE CASCADE).
+func (s *Store) DeleteFeed(feedID int64) error {
+	_, err := s.db.Exec("DELETE FROM feeds WHERE id = $1", feedID)
 	return err
 }
 

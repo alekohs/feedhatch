@@ -50,7 +50,7 @@ func (m Model) View() tea.View {
 	}
 	right = m.renderPanel(title, right, rightWidth, panelHeight,
 		m.focus == articlesPanel || m.form != nil || m.help)
-	footer := "h/l panel  j/k välj  enter öppna  a lägg till  c kategori  i intervall  ? hjälp  q avsluta"
+	footer := "h/l panel  j/k välj  enter öppna  a lägg till  c kategori  i intervall  A allt läst  D ta bort  ? hjälp  q avsluta"
 	if m.reading {
 		footer = "j/k line  {/} paragraph  d/u half-page  f/b page  v select  y copy  ? help"
 	} else if m.form != nil {
@@ -316,6 +316,8 @@ y  Copy selection (otherwise current row)
 Esc cancels selection before leaving reader
 
 a  Add feed · c change category · i change interval
+A  Mark all articles in the feed as read
+D  Delete feed and its articles (confirm with y)
 m  Toggle read/unread · t switch theme
 ? / Esc close help · q quit
 Ctrl+c quits even while editing forms

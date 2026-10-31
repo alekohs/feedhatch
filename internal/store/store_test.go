@@ -149,3 +149,34 @@ func TestSeedMock(t *testing.T) {
 		t.Fatalf("got %d feeds, want 4", len(feeds))
 	}
 }
+
+func TestDeleteFeedRemovesArticles(t *testing.T) {
+	s := openTest(t)
+
+	feedID, err := s.AddFeed(Feed{URL: "https://example.com/rss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveArticles(feedID, []Article{{GUID: "a"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteFeed(feedID); err != nil {
+		t.Fatal(err)
+	}
+
+	feeds, err := s.Feeds()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(feeds) != 0 {
+		t.Fatalf("got %d feeds, want 0", len(feeds))
+	}
+	var articles int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM articles").Scan(&articles); err != nil {
+		t.Fatal(err)
+	}
+	if articles != 0 {
+		t.Fatalf("got %d articles, want the feed's articles deleted with it", articles)
+	}
+}

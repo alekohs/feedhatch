@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"alekohs/feedhatch/internal/server"
 	"alekohs/feedhatch/internal/store"
 )
 
@@ -41,6 +43,8 @@ type form struct {
 
 type Model struct {
 	store         *store.Store
+	updates       <-chan FetchedMsg
+	announce      func(server.Event)
 	width, height int
 	feeds         []subscription
 	feedIndex     int
@@ -52,6 +56,7 @@ type Model struct {
 	visual        bool
 	anchor        int
 	pendingZ      bool
+	pendingDelete bool
 	status        string
 	help          bool
 	helpScroll    int
@@ -63,8 +68,11 @@ type Model struct {
 // FetchedMsg tells the TUI that the worker finished a round and the store may have new articles.
 type FetchedMsg struct{ Err error }
 
-func New(st *store.Store) (Model, error) {
-	m := Model{store: st}
+// New loads the feeds from st. Each FetchedMsg on updates reloads them, and announce
+// is called after every change the TUI saves, so other listeners hear about it.
+// Both may be nil.
+func New(st *store.Store, updates <-chan FetchedMsg, announce func(server.Event)) (Model, error) {
+	m := Model{store: st, updates: updates, announce: announce}
 	if err := m.load(); err != nil {
 		return Model{}, err
 	}
@@ -146,7 +154,15 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd { return m.waitForUpdate() }
+
+func (m Model) waitForUpdate() tea.Cmd {
+	if m.updates == nil {
+		return nil
+	}
+	updates := m.updates
+	return func() tea.Msg { return <-updates }
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -157,6 +173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Uppdatering misslyckades: " + strings.ReplaceAll(msg.Err.Error(), "\n", "; ")
 		}
 		m.ensureLineVisible()
+		return m, m.waitForUpdate()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Wrapped row numbers change on resize; do not silently copy a new range.
@@ -207,6 +224,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status = ""
+		if m.pendingDelete {
+			m.pendingDelete = false
+			if key == "y" {
+				m.deleteFeed()
+			} else {
+				m.status = "Borttagningen avbröts."
+			}
+			return m, nil
+		}
 		previousZ := m.pendingZ
 		m.pendingZ = false
 		if key == "z" && m.reading {
@@ -251,6 +277,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.feeds) > 0 {
 				m.form = &form{single: true, field: 2}
 				m.form.values[2] = m.feeds[m.feedIndex].category
+			}
+		case "A":
+			if len(m.feeds) > 0 {
+				m.markFeedRead()
+			}
+		case "D":
+			if len(m.feeds) > 0 {
+				m.pendingDelete = true
+				m.status = fmt.Sprintf("Ta bort %s och alla dess artiklar? y tar bort, annan tangent avbryter.", m.feeds[m.feedIndex].name)
 			}
 		case "i":
 			if len(m.feeds) > 0 {
@@ -331,9 +366,52 @@ func (m *Model) openArticle() {
 	}
 }
 
+func (m *Model) markFeedRead() {
+	feed := &m.feeds[m.feedIndex]
+	n := unreadCount(*feed)
+	if n == 0 {
+		m.status = "Inga olästa artiklar i " + feed.name + "."
+		return
+	}
+	if err := m.store.SetFeedRead(feed.id, true); err != nil {
+		m.status = "Kunde inte markera flödet som läst: " + err.Error()
+		return
+	}
+	for i := range feed.articles {
+		feed.articles[i].unread = false
+	}
+	m.status = fmt.Sprintf("Markerade %d artiklar i %s som lästa.", n, feed.name)
+	m.publish(server.Event{Type: "feed_read", Feed: feed.name})
+}
+
+func (m *Model) deleteFeed() {
+	feed := m.feeds[m.feedIndex]
+	if err := m.store.DeleteFeed(feed.id); err != nil {
+		m.status = "Kunde inte ta bort flödet: " + err.Error()
+		return
+	}
+	m.feeds = slices.Delete(m.feeds, m.feedIndex, m.feedIndex+1)
+	m.feedIndex, m.articleIndex = clamp(m.feedIndex, len(m.feeds)), 0
+	m.focus, m.reading, m.scroll, m.visual = feedsPanel, false, 0, false
+	m.status = "Tog bort " + feed.name + "."
+	m.publish(server.Event{Type: "feed_deleted", Feed: feed.name})
+}
+
 func (m *Model) saveRead(a *article) {
 	if err := m.store.SetRead(a.id, !a.unread); err != nil {
 		m.status = "Kunde inte spara läsläget: " + err.Error()
+		return
+	}
+	e := server.Event{Type: "read", Feed: m.feeds[m.feedIndex].name, ArticleID: a.id, Article: a.title}
+	if a.unread {
+		e.Type = "unread"
+	}
+	m.publish(e)
+}
+
+func (m *Model) publish(e server.Event) {
+	if m.announce != nil {
+		m.announce(e)
 	}
 }
 
@@ -458,12 +536,14 @@ func (m *Model) saveForm() {
 			return
 		}
 		m.feeds[m.feedIndex].category = category
+		m.publish(server.Event{Type: "category", Feed: m.feeds[m.feedIndex].name, Category: category})
 	case f.single:
 		if err := m.store.SetInterval(m.feeds[m.feedIndex].id, interval); err != nil {
 			f.err = "Kunde inte spara intervallet: " + err.Error()
 			return
 		}
 		m.feeds[m.feedIndex].interval = interval
+		m.publish(server.Event{Type: "interval", Feed: m.feeds[m.feedIndex].name, Interval: interval})
 	default:
 		address := strings.TrimSpace(f.values[0])
 		u, err := url.Parse(address)
@@ -488,6 +568,7 @@ func (m *Model) saveForm() {
 		}
 		m.feeds = append(m.feeds, subscription{id: id, interval: interval, name: name, url: address, category: category})
 		m.feedIndex, m.articleIndex = len(m.feeds)-1, 0
+		m.publish(server.Event{Type: "feed_added", Feed: name, Category: category, Interval: interval})
 	}
 	m.form, m.focus, m.reading, m.scroll, m.visual = nil, feedsPanel, false, 0, false
 }

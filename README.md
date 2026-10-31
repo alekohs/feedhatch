@@ -30,6 +30,41 @@ systemctl --user disable feedhatch
 - Go
 - [golangci-lint](https://golangci-lint.run/) for `make lint` and `make package`
 
+## Events
+
+Whichever feedhatch runs the fetcher (the daemon, or the TUI when no daemon is
+running) publishes events on `$XDG_RUNTIME_DIR/feedhatch.sock`, one JSON object
+per line. The TUI uses them to reload, and other programs can listen too:
+
+```sh
+socat -u UNIX-CONNECT:$XDG_RUNTIME_DIR/feedhatch.sock - | jq .
+```
+
+```json
+{"type":"feed","feed":"Arch Linux","new":3,"timestamp":"…"}
+{"type":"error","feed":"Example","error":"failed to detect feed type","timestamp":"…"}
+{"type":"round","timestamp":"…"}
+```
+
+Changes made in a TUI are announced the same way, so other TUIs reload and
+scripts can react:
+
+```json
+{"type":"read","feed":"Arch Linux","article_id":12,"article":"…","timestamp":"…"}
+{"type":"unread","feed":"Arch Linux","article_id":12,"article":"…","timestamp":"…"}
+{"type":"feed_added","feed":"Example","category":"News","interval":15,"timestamp":"…"}
+{"type":"feed_deleted","feed":"Example","timestamp":"…"}
+{"type":"feed_read","feed":"Example","timestamp":"…"}
+{"type":"category","feed":"Example","category":"Tech","timestamp":"…"}
+{"type":"interval","feed":"Example","interval":30,"timestamp":"…"}
+```
+
+Clients can send these change events to the socket too; feedhatch passes them on
+to every listener and ignores any other type.
+
+If a daemon is already running, a TUI started afterwards does not fetch; it only
+listens to the daemon's events.
+
 ## Keys
 
 | Key | Action |
@@ -53,6 +88,8 @@ systemctl --user disable feedhatch
 | `a` | Add feed: URL, optional name, category and update interval (default 15 minutes) |
 | `c` | Move the selected feed to an existing or new category |
 | `i` | Change how often the selected feed updates, in minutes |
+| `A` | Mark all articles in the selected feed as read |
+| `D` | Delete the selected feed and its articles; `y` confirms, any other key cancels |
 | `m` | Toggle read/unread for the selected article |
 | `t` | Toggle base theme/terminal colors |
 | `?` | Show/close help |

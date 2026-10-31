@@ -53,7 +53,7 @@ format: ## Format code
 	@go fmt ./...
 
 format-check: ## Fail if code is not formatted
-	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
+	@test -z "$$(gofmt -l .)" || (gofmt -d . && echo 'Run `make format` to fix' && exit 1)
 
 vet: ## Analyze code for errors
 	@go vet ./...
