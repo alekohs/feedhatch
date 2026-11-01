@@ -65,9 +65,25 @@ func (m *Model) imageLoaded(msg imageLoadedMsg) {
 	if e == nil {
 		return
 	}
+	width := m.readerWidth()
+	before, imageAt := m.readerRows(width)
+
 	e.loading, e.img, e.err = false, msg.img, msg.err
 	if e.img != nil {
 		e.id = m.gallery.assignID(msg.src)
+	}
+
+	// The loading row became the image's rows: keep the cursor and the view on the
+	// same text when the image is above them.
+	if at, shown := imageAt[msg.src]; shown {
+		delta := len(m.readerLines(width)) - len(before)
+		if at < m.line {
+			m.line += delta
+		}
+		if at < m.scroll {
+			m.scroll += delta
+		}
+		m.ensureLineVisible()
 	}
 }
 

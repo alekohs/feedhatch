@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/png"
 	"net/http"
@@ -209,5 +210,41 @@ func TestCoverImageComesFirstUnlessTheTextShowsIt(t *testing.T) {
 	a.body = "Intro\n\n" + parser.Image + "/cover.png" + parser.ImageAlt + "\n\nText"
 	if lines := a.bodyLines(); lines[0] != "Intro" {
 		t.Fatalf("the cover is already in the text (as a relative URL), got %q", lines)
+	}
+}
+
+func TestReaderKeepsItsPlaceWhenAnImageAboveLoads(t *testing.T) {
+	src, _ := imageServer(t)
+	m := sizedModel(t)
+	m.imagesSupported, m.imagesOn = true, true
+	var body []string
+	for i := range 40 {
+		body = append(body, fmt.Sprintf("Row %02d", i))
+		if i == 3 {
+			body = append(body, "", parser.Image+src+parser.ImageAlt, "")
+		}
+	}
+	m.currentArticle().body = strings.Join(body, "\n")
+	m = press(m, "alt+2")
+	updated, cmd := m.Update(keyMessage("enter"))
+	m = updated.(Model)
+	m = press(m, "2", "0", "j")
+	cursorText := m.readerLines(m.readerWidth())[m.line]
+	top := m.scroll
+
+	for _, msg := range run(cmd) {
+		if loaded, ok := msg.(imageLoadedMsg); ok {
+			updated, _ = m.Update(loaded)
+			m = updated.(Model)
+		}
+	}
+	if placeholderRows(m) == 0 {
+		t.Fatal("the image should have loaded")
+	}
+	if got := m.readerLines(m.readerWidth())[m.line]; got != cursorText {
+		t.Fatalf("cursor moved from %q to %q when the image above loaded", cursorText, got)
+	}
+	if top > 0 && m.scroll <= top {
+		t.Fatalf("scroll = %d, want it moved down from %d with the inserted rows", m.scroll, top)
 	}
 }

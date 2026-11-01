@@ -514,14 +514,24 @@ func (m Model) articleList(width, height int) string {
 }
 
 func (m Model) readerLines(width int) []string {
+	lines, _ := m.readerRows(width)
+	return lines
+}
+
+// readerRows are the reader's rows, and the row each image (by URL) starts on.
+func (m Model) readerRows(width int) (lines []string, imageAt map[string]int) {
 	a := m.currentArticle()
 	if a == nil {
-		return []string{"Ingen artikel vald."}
+		return []string{"Ingen artikel vald."}, nil
 	}
+	imageAt = map[string]int{}
 	head := a.title + "\n" + a.date + " · " + m.currentFeed().name + "\n"
-	lines := strings.Split(ansi.Wrap(head, max(1, width), ""), "\n")
+	lines = strings.Split(ansi.Wrap(head, max(1, width), ""), "\n")
 	for _, line := range a.bodyLines() {
-		if strings.HasPrefix(line, parser.Image) {
+		if src, _, ok := parser.ParseImage(line); ok {
+			if _, seen := imageAt[resolveURL(a.link, src)]; !seen {
+				imageAt[resolveURL(a.link, src)] = len(lines)
+			}
 			lines = append(lines, m.imageRows(line, a.link, width)...)
 			continue
 		}
@@ -531,7 +541,7 @@ func (m Model) readerLines(width int) []string {
 		// Many feeds only carry a teaser; the last link is always the article itself.
 		lines = append(lines, "", parser.LinkStart(len(a.links)+1)+"Läs hela artikeln"+parser.LinkOff)
 	}
-	return lines
+	return lines, imageAt
 }
 
 // articleLinks are the current article's links as absolute URLs, numbered like the
