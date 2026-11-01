@@ -134,8 +134,8 @@ func TestUpdateFeeds(t *testing.T) {
 	}
 
 	var reports []string
-	report := func(feed string, added int, err error) {
-		reports = append(reports, fmt.Sprintf("%s: %d %v", feed, added, err))
+	report := func(f store.Feed, added int, err error) {
+		reports = append(reports, fmt.Sprintf("%s: %d %v", f.URL, added, err))
 	}
 	if err := UpdateFeeds(context.Background(), s, report); err != nil {
 		t.Fatalf("UpdateFeeds() returnerade ett fel: %v", err)
@@ -204,7 +204,7 @@ func TestUpdateFeedsStopsWithoutReportingWhenCancelled(t *testing.T) {
 		cancel()
 	}()
 	var reports []string
-	err = UpdateFeeds(ctx, s, func(feed string, added int, err error) { reports = append(reports, feed) })
+	err = UpdateFeeds(ctx, s, func(f store.Feed, added int, err error) { reports = append(reports, f.URL) })
 	if err != nil || len(reports) != 0 {
 		t.Fatalf("err = %v, reports = %v: a cancelled round should stop quietly", err, reports)
 	}
@@ -236,7 +236,7 @@ func TestUpdateFeedFetchesOnlyThatFeedRightAway(t *testing.T) {
 	}
 
 	var reports []string
-	report := func(feed string, n int, err error) { reports = append(reports, fmt.Sprint(feed, n, err)) }
+	report := func(f store.Feed, n int, err error) { reports = append(reports, fmt.Sprint(f.URL, n, err)) }
 	if err := UpdateFeed(context.Background(), s, added, report); err != nil {
 		t.Fatal(err)
 	}

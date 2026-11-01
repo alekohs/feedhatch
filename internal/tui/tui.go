@@ -17,6 +17,7 @@ import (
 	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/feed"
 	"alekohs/feedhatch/internal/parser"
+	"alekohs/feedhatch/internal/settings"
 	"alekohs/feedhatch/internal/store"
 )
 
@@ -33,6 +34,7 @@ type article struct {
 type subscription struct {
 	id, interval        int64
 	name, url, category string
+	notify              bool // OS notifications for its new articles
 	articles            []article
 }
 
@@ -101,6 +103,7 @@ type Model struct {
 	imagesSupported bool
 	imagesOn        bool // images load automatically where supported, until I turns them off
 	imagesOff       bool // the choice made with I, kept even where images aren't supported
+	notificationsOn bool // the master switch for OS notifications (Alt+b); feeds have their own
 	settingsPath    string
 	terminalTheme   bool
 	form            *form
@@ -142,8 +145,8 @@ func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event),
 		imageDir: cfg.ImageDir, imagesSupported: cfg.Images, imagesOn: cfg.Images, gallery: newGallery(),
 		settingsPath: cfg.SettingsPath,
 	}
-	saved := loadSettings(cfg.SettingsPath)
-	m.sidebarWidth, m.listWidth = saved.SidebarWidth, saved.ListWidth
+	saved := settings.Load(cfg.SettingsPath)
+	m.sidebarWidth, m.listWidth, m.notificationsOn = saved.SidebarWidth, saved.ListWidth, saved.Notifications
 	m.imagesOff = saved.ImagesOff
 	m.imagesOn = m.imagesOn && !m.imagesOff
 	if err := m.load(); err != nil {
@@ -206,7 +209,7 @@ func (m *Model) load() error {
 		if err != nil {
 			return err
 		}
-		sub := subscription{id: f.ID, interval: f.Interval, name: f.Name, url: f.URL, category: f.Category}
+		sub := subscription{id: f.ID, interval: f.Interval, name: f.Name, url: f.URL, category: f.Category, notify: f.Notification}
 		for _, a := range articles {
 			body, links := parser.Text(a.Content)
 			title, _ := parser.Text(a.Title)
@@ -557,6 +560,31 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Hämtar hela artikeln…"
 				return m, fetchFullArticle(m.store, a.id, a.link)
 			}
+		case "B":
+			if len(m.feeds) > 0 && m.requireFeed() {
+				feed := &m.feeds[m.feedIndex]
+				if err := m.store.SetNotification(feed.id, !feed.notify); err != nil {
+					m.status, m.tone = "Kunde inte spara notisvalet: "+err.Error(), toneErr
+					break
+				}
+				feed.notify = !feed.notify
+				switch {
+				case !feed.notify:
+					m.status, m.tone = "Inga notiser för "+feed.name+".", toneOK
+				case m.notificationsOn:
+					m.status, m.tone = "Notiser för "+feed.name+" när nya artiklar kommer.", toneOK
+				default:
+					m.status, m.tone = "Notiser valda för "+feed.name+", men alla notiser är avstängda (Alt+b slår på dem).", toneWarn
+				}
+			}
+		case "alt+b":
+			m.notificationsOn = !m.notificationsOn
+			if m.notificationsOn {
+				m.status, m.tone = "Notiser påslagna för flöden som har dem valda (B).", toneOK
+			} else {
+				m.status, m.tone = "Alla notiser avstängda.", toneOK
+			}
+			m.saveSettings()
 		case "I":
 			switch {
 			case !m.imagesSupported:

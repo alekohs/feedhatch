@@ -408,7 +408,11 @@ func (m Model) sidebar(width, height int) string {
 			if unreadCount(feed) > 0 {
 				nameStyle = p.normal()
 			}
-			lines = append(lines, m.sidebarRow(feed.name, unreadCount(feed), selected, nameStyle, width))
+			name := feed.name
+			if feed.notify {
+				name += " ♪"
+			}
+			lines = append(lines, m.sidebarRow(name, unreadCount(feed), selected, nameStyle, width))
 		}
 	}
 	start := max(0, selectedLine-height+1)
@@ -986,6 +990,7 @@ Flöden
 a  Lägg till flöde · c ändra kategori · i ändra intervall
 D  Ta bort flödet och dess artiklar (bekräfta med y)
 A  Markera alla artiklar som lästa
+B  Notiser för valt flöde av/på (♪ i listan) · Alt+b alla notiser av/på
 r  Uppdatera flödena
 
 Övrigt

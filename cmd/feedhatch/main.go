@@ -85,7 +85,14 @@ func runTUI(name string, mock bool, logSize int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv, err := server.Start(ctx, server.Options{Name: name, Mock: mock, Logger: logger})
+	if !mock {
+		if err := store.CreateWithExamples(name); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	settingsPath := filepath.Join(filepath.Dir(logPath), "settings.json")
+	srv, err := server.Start(ctx, server.Options{Name: name, Mock: mock, Logger: logger, SettingsPath: settingsPath})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -125,7 +132,7 @@ func runTUI(name string, mock bool, logSize int) {
 		Mock:         mock,
 		LogPath:      logPath,
 		ImageDir:     imageDir,
-		SettingsPath: filepath.Join(filepath.Dir(logPath), "settings.json"),
+		SettingsPath: settingsPath,
 		Images:       graphics.Supported(),
 	})
 	if err != nil {
@@ -204,7 +211,16 @@ func runDaemon(name string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	srv, err := server.Start(ctx, server.Options{Name: name, Logger: logger})
+	dir, err := store.Dir(name)
+	if err != nil {
+		logger.Error("could not start", "err", err)
+		os.Exit(1)
+	}
+	if err := store.CreateWithExamples(name); err != nil {
+		logger.Error("could not create the database", "err", err)
+		os.Exit(1)
+	}
+	srv, err := server.Start(ctx, server.Options{Name: name, Logger: logger, SettingsPath: filepath.Join(dir, "settings.json")})
 	if err != nil {
 		logger.Error("could not start", "err", err)
 		os.Exit(1)

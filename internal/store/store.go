@@ -4,6 +4,7 @@ import (
 	"alekohs/feedhatch/internal/constants"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,6 +54,36 @@ func Open(name string) (*Store, error) {
 		return nil, err
 	}
 	return OpenPath(filepath.Join(dir, constants.FeedDb))
+}
+
+// CreateWithExamples creates the database of the feedhatch called name with example
+// feeds, so a first start has something to read; an existing database is left alone.
+func CreateWithExamples(name string) error {
+	dir, err := Dir(name)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, constants.FeedDb)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	s, err := OpenPath(path)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	for _, f := range examples {
+		if _, err := s.AddFeed(f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// examples are the feeds a new database starts with, so there is something to read.
+var examples = []Feed{
+	{URL: "https://github.com/alekohs/feedhatch/releases.atom", Name: "feedhatch releases", Category: "feedhatch", Interval: 24 * 60},
+	{URL: "https://go.dev/blog/feed.atom", Name: "The Go Blog", Category: "Utveckling", Interval: 6 * 60},
 }
 
 func OpenPath(path string) (*Store, error) {

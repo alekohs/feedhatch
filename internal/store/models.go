@@ -5,6 +5,7 @@ import "time"
 type Feed struct {
 	ID, Interval, FetchedAt int64
 	URL, Name, Category     string
+	Notification            bool
 }
 
 type Article struct {

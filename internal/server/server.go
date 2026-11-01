@@ -12,6 +12,8 @@ import (
 
 	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/feed"
+	"alekohs/feedhatch/internal/notify"
+	"alekohs/feedhatch/internal/settings"
 	"alekohs/feedhatch/internal/store"
 	"alekohs/feedhatch/internal/worker"
 )
@@ -27,20 +29,24 @@ type Options struct {
 	// Mock uses sample data in a temporary database and starts neither socket nor worker.
 	Mock   bool
 	Logger *slog.Logger
+	// SettingsPath is the settings file with the master switch for notifications.
+	SettingsPath string
 }
 
 type Server struct {
 	Store *store.Store
 
-	logger      *slog.Logger
-	serving     atomic.Bool
-	listener    net.Listener    // guarded by mu
-	closed      bool            // guarded by mu; set by Close so late connections are refused
-	ctx         context.Context // the server's lifetime, for work started later
-	stop        context.CancelFunc
-	worker      sync.WaitGroup
-	mu          sync.Mutex
-	subscribers map[*subscriber]struct{}
+	logger       *slog.Logger
+	settingsPath string // read on every notification, so the TUI's switch applies here too
+	notifyFailed atomic.Bool
+	serving      atomic.Bool
+	listener     net.Listener    // guarded by mu
+	closed       bool            // guarded by mu; set by Close so late connections are refused
+	ctx          context.Context // the server's lifetime, for work started later
+	stop         context.CancelFunc
+	worker       sync.WaitGroup
+	mu           sync.Mutex
+	subscribers  map[*subscriber]struct{}
 }
 
 func Start(ctx context.Context, opts Options) (*Server, error) {
@@ -53,7 +59,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	}
 
 	ctx, stop := context.WithCancel(ctx)
-	s := &Server{Store: st, logger: logger, ctx: ctx, stop: stop, subscribers: make(map[*subscriber]struct{})}
+	s := &Server{Store: st, logger: logger, settingsPath: opts.SettingsPath, ctx: ctx, stop: stop, subscribers: make(map[*subscriber]struct{})}
 
 	// Mock feeds point at real URLs; fetching them would mix live articles into the sample data.
 	if opts.Mock {
@@ -136,14 +142,36 @@ func (s *Server) GetStatus() string {
 	return "OK"
 }
 
-func (s *Server) report(feed string, added int, err error) {
+func (s *Server) report(f store.Feed, added int, err error) {
+	feed := f.Name
+	if feed == "" {
+		feed = f.URL
+	}
 	if err != nil {
 		s.logger.Warn("fetch failed", "feed", feed, "err", err)
 		s.broadcast(event.Event{Type: event.Failed, Feed: feed, Error: err.Error()})
 		return
 	}
 	s.logger.Info("fetched feed", "feed", feed, "new", added)
-	s.broadcast(event.Event{Type: event.Fetched, Feed: feed, New: added})
+	s.broadcast(event.Event{Type: event.Fetched, Feed: feed, FeedID: f.ID, New: added})
+	if added > 0 && f.Notification && settings.Load(s.settingsPath).Notifications {
+		s.notify(feed, added)
+	}
+}
+
+// sendNotification shows an OS notification; tests replace it.
+var sendNotification = notify.Send
+
+// notify tells the user about new articles through the OS; a missing notifier is
+// logged once, not on every fetch.
+func (s *Server) notify(feed string, added int) {
+	text := fmt.Sprintf("%d nya artiklar", added)
+	if added == 1 {
+		text = "1 ny artikel"
+	}
+	if err := sendNotification(feed, text); err != nil && !s.notifyFailed.Swap(true) {
+		s.logger.Warn("could not show a notification", "err", err)
+	}
 }
 
 func (s *Server) roundDone(err error) {

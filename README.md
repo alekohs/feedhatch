@@ -2,7 +2,8 @@
 Hatch your feeds. Catch every update.
 
 A keyboard-driven RSS reader built with Bubble Tea. Feeds, categories and
-read state are saved in `~/.cache/feedhatch/feeds.db`. Each feed is fetched on
+read state are saved in `~/.cache/feedhatch/feeds.db`; a new database starts
+with two example feeds (feedhatch releases and The Go Blog). Each feed is fetched on
 its own interval (default 15 minutes), checked once a minute.
 
 ```sh
@@ -190,6 +191,7 @@ previews the selected article without marking it read; opening it with `enter`,
 | `c` | Move the selected feed to an existing or new category (not on Olästa/Alla artiklar) |
 | `i` | Change how often the selected feed updates: `30m`, `2h`, `1d`, `1w` or combinations like `1h30m` (a plain number is minutes) |
 | `A` | Mark all articles in the selected feed as read; on Olästa/Alla artiklar, all feeds after `y` |
+| `B` | Turn OS notifications for the selected feed's new articles on/off (marked ♪); `Alt+b` turns all notifications off/on |
 | `D` | Delete the selected feed and its articles; `y` confirms, any other key cancels |
 | `m` | Toggle read/unread for the selected article |
 | `r` | Reload the lists from the database |
@@ -223,6 +225,15 @@ wrap. Multiple occurrences on the same row count as one navigation stop.
 `n` and `N` also extend a visual selection. Submitting an empty `/` prompt
 repeats the previous search; `Ctrl+u` clears the input. Cancelling the prompt
 keeps the previous query and cursor position. `?` still opens help.
+
+## Notifications
+
+feedhatch can tell you about new articles with a desktop notification
+(`notify-send` on Linux, the notification center on macOS). Turn it on per feed
+with `B`; such feeds are marked ♪ in the feed list. `Alt+b` silences all
+notifications at once without losing the per-feed choices. Whichever process
+fetches, the TUI or the daemon, sends them, and the daemon follows `Alt+b`
+right away.
 
 ## Links
 

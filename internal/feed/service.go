@@ -47,7 +47,7 @@ func Fetch(ctx context.Context, feed store.Feed) (*gofeed.Feed, error) {
 // UpdateFeeds fetches every feed whose interval has passed, saves its new articles
 // and reports the outcome of each fetched feed.
 // When ctx is cancelled it stops after the current request, without reporting it.
-func UpdateFeeds(ctx context.Context, s *store.Store, report func(feed string, added int, err error)) error {
+func UpdateFeeds(ctx context.Context, s *store.Store, report func(f store.Feed, added int, err error)) error {
 	feeds, err := s.Feeds()
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func UpdateFeeds(ctx context.Context, s *store.Store, report func(feed string, a
 }
 
 // UpdateFeed fetches the feed with id right away, due or not, e.g. just after it was added.
-func UpdateFeed(ctx context.Context, s *store.Store, id int64, report func(feed string, added int, err error)) error {
+func UpdateFeed(ctx context.Context, s *store.Store, id int64, report func(f store.Feed, added int, err error)) error {
 	feeds, err := s.Feeds()
 	if err != nil {
 		return err
@@ -87,12 +87,7 @@ func UpdateFeed(ctx context.Context, s *store.Store, id int64, report func(feed 
 }
 
 // update fetches one feed and saves its new articles; a cancelled fetch is not reported.
-func update(ctx context.Context, s *store.Store, f store.Feed, now time.Time, report func(feed string, added int, err error)) error {
-	name := f.Name
-	if name == "" {
-		name = f.URL
-	}
-
+func update(ctx context.Context, s *store.Store, f store.Feed, now time.Time, report func(f store.Feed, added int, err error)) error {
 	var added int
 	result, err := Fetch(ctx, f)
 	if ctx.Err() != nil {
@@ -104,7 +99,7 @@ func update(ctx context.Context, s *store.Store, f store.Feed, now time.Time, re
 	if err == nil {
 		err = s.SetFetched(f.ID, now.Unix())
 	}
-	report(name, added, err)
+	report(f, added, err)
 	if err != nil {
 		return fmt.Errorf("%s: %w", f.URL, err)
 	}

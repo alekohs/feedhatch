@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"alekohs/feedhatch/internal/event"
+	"alekohs/feedhatch/internal/settings"
 	"alekohs/feedhatch/internal/store"
 )
 
@@ -270,5 +272,80 @@ func TestAddedFeedIsFetchedRightAway(t *testing.T) {
 	}
 	if articles, _ := s.Store.Articles(id); len(articles) != 1 {
 		t.Fatalf("got %d articles, want the new feed's article saved", len(articles))
+	}
+}
+
+func TestNewArticlesNotifyWhenTheFeedAndTheSwitchAllowIt(t *testing.T) {
+	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
+<item><title>One</title><guid>1</guid></item><item><title>Two</title><guid>2</guid></item></channel></rss>`))
+	}))
+	t.Cleanup(feedServer.Close)
+
+	for _, c := range []struct {
+		name         string
+		feedNotifies bool
+		switchOn     bool
+		wantNotified bool
+	}{
+		{"feed and switch on", true, true, true},
+		{"feed off", false, true, false},
+		{"switch off", true, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+			notified := make(chan string, 4)
+			previous := sendNotification
+			sendNotification = func(title, body string) error {
+				notified <- title + ": " + body
+				return nil
+			}
+			t.Cleanup(func() { sendNotification = previous })
+
+			st, err := store.Open("feedhatch")
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, err := st.AddFeed(store.Feed{URL: feedServer.URL, Name: "Blog"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := st.SetNotification(id, c.feedNotifies); err != nil {
+				t.Fatal(err)
+			}
+			st.Close()
+			settingsPath := filepath.Join(t.TempDir(), "settings.json")
+			if err := (settings.Config{Notifications: c.switchOn}).Save(settingsPath); err != nil {
+				t.Fatal(err)
+			}
+
+			s, err := Start(context.Background(), Options{Name: "feedhatch", Logger: slog.New(slog.DiscardHandler), SettingsPath: settingsPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			deadline := time.After(3 * time.Second)
+			for {
+				if articles, _ := s.Store.Articles(id); len(articles) == 2 {
+					break
+				}
+				select {
+				case <-deadline:
+					t.Fatal("the feed should be fetched")
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			select {
+			case got := <-notified:
+				if !c.wantNotified || got != "Blog: 2 nya artiklar" {
+					t.Fatalf("notified %q, want notified = %v", got, c.wantNotified)
+				}
+			case <-time.After(200 * time.Millisecond):
+				if c.wantNotified {
+					t.Fatal("new articles should notify")
+				}
+			}
+		})
 	}
 }

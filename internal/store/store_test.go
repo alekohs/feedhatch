@@ -23,8 +23,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("user_version = %d, want 2", version)
+	if version != 3 {
+		t.Fatalf("user_version = %d, want 3", version)
 	}
 }
 
@@ -214,5 +214,50 @@ func TestSaveArticlesFillsInMissingImages(t *testing.T) {
 	}
 	if images["a"] != "https://example.com/a.png" || images["b"] != "https://example.com/old.png" {
 		t.Fatalf("images = %v, want a filled in and b kept", images)
+	}
+}
+
+func TestCreateWithExamplesOnlyForANewDatabase(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	if err := CreateWithExamples("feedhatch"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open("feedhatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	feeds, _ := s.Feeds()
+	if len(feeds) != len(examples) || feeds[0].Notification {
+		t.Fatalf("got %d feeds, want the %d examples, with notifications off", len(feeds), len(examples))
+	}
+	for _, f := range feeds {
+		if err := s.DeleteFeed(f.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+
+	if err := CreateWithExamples("feedhatch"); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = Open("feedhatch")
+	defer s.Close()
+	if feeds, _ := s.Feeds(); len(feeds) != 0 {
+		t.Fatal("an existing database must not get the examples again")
+	}
+}
+
+func TestNotificationIsStoredPerFeed(t *testing.T) {
+	s := openTest(t)
+	id, err := s.AddFeed(Feed{URL: "https://example.com/rss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNotification(id, true); err != nil {
+		t.Fatal(err)
+	}
+	if feeds, _ := s.Feeds(); !feeds[0].Notification {
+		t.Fatal("the feed's notification choice should be read back")
 	}
 }
