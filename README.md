@@ -149,7 +149,9 @@ Clients can send these change events to the socket too; feedhatch passes them on
 to every listener and ignores any other type.
 
 If a daemon is already running, a TUI started afterwards does not fetch; it only
-listens to the daemon's events.
+listens to the daemon's events. Whoever is only listening takes over fetching
+within a couple of seconds when the fetching process stops, so a daemon started
+while the TUI runs waits and carries on when you close the TUI.
 
 ## Keys
 

@@ -7,11 +7,17 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/store"
 	"alekohs/feedhatch/internal/worker"
 )
+
+// takeOverInterval is how often a process that only listens checks whether the
+// socket's owner has stopped.
+var takeOverInterval = 2 * time.Second
 
 type Options struct {
 	// Name picks the data directory and socket: "feedhatch", or "feedhatch-dev" to keep
@@ -24,11 +30,11 @@ type Options struct {
 
 type Server struct {
 	Store *store.Store
-	// Serving is false when another feedhatch already owns the socket and runs the worker.
-	Serving bool
 
 	logger      *slog.Logger
-	listener    net.Listener
+	serving     atomic.Bool
+	listener    net.Listener // guarded by mu
+	closed      bool         // guarded by mu; set by Close so late connections are refused
 	stop        context.CancelFunc
 	worker      sync.WaitGroup
 	mu          sync.Mutex
@@ -56,6 +62,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	l, err := listen(path)
 	if errors.Is(err, ErrRunning) {
 		logger.Info("another feedhatch owns the socket, only listening for its updates", "socket", path)
+		s.worker.Go(func() { s.takeOver(ctx, path) })
 		return s, nil
 	}
 	if err != nil {
@@ -63,23 +70,61 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		return nil, err
 	}
 
-	s.listener, s.Serving = l, true
-	go s.serve(l)
-	s.worker.Go(func() { worker.Run(ctx, st, s.report, s.roundDone) })
-
+	s.claim(ctx, l)
 	logger.Info("started", "socket", path)
 	return s, nil
 }
 
+// Serving reports whether this process owns the socket and runs the worker; it turns
+// true when it takes over from an owner that stopped.
+func (s *Server) Serving() bool { return s.serving.Load() }
+
+// takeOver waits for the socket's owner to stop, then claims the socket so fetching
+// goes on, e.g. a TUI started after the daemon keeps fetching when the daemon stops.
+func (s *Server) takeOver(ctx context.Context, path string) {
+	ticker := time.NewTicker(takeOverInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if l, err := listen(path); err == nil {
+			s.logger.Info("took over from the stopped owner", "socket", path)
+			s.claim(ctx, l)
+			return
+		}
+	}
+}
+
+func (s *Server) claim(ctx context.Context, l net.Listener) {
+	s.mu.Lock()
+	s.listener = l
+	s.mu.Unlock()
+	s.serving.Store(true)
+	go s.serve(l)
+	s.worker.Go(func() { worker.Run(ctx, s.Store, s.report, s.roundDone) })
+}
+
 // Close stops the worker, waiting for a fetch in progress so it doesn't write to a
-// closed database, then closes the socket and the store.
+// closed database, then closes the socket, its client connections and the store.
 func (s *Server) Close() {
 	s.logger.Info("closing")
 	s.stop()
 	s.worker.Wait()
+	s.mu.Lock()
+	s.closed = true
 	if s.listener != nil {
 		s.listener.Close()
 	}
+	// Closing a subscriber's events ends its writer, which closes the connection, so
+	// clients notice and reconnect to whoever takes over.
+	for sub := range s.subscribers {
+		delete(s.subscribers, sub)
+		close(sub.events)
+	}
+	s.mu.Unlock()
 	s.Store.Close()
 }
 

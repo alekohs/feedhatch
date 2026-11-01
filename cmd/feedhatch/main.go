@@ -202,12 +202,11 @@ func runDaemon(name string) {
 	}
 	defer srv.Close()
 
-	if !srv.Serving {
-		logger.Error(server.ErrRunning.Error())
-		return
+	if srv.Serving() {
+		logger.Info("checking feeds every minute")
+	} else {
+		logger.Info("another feedhatch is fetching; taking over when it stops")
 	}
-
-	logger.Info("checking feeds every minute")
 	<-ctx.Done()
 }
 

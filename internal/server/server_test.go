@@ -27,7 +27,7 @@ func TestStartServesAndSubscribeReceivesEvents(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	s := startTest(t)
-	if !s.Serving {
+	if !s.Serving() {
 		t.Fatal("the first server should own the socket")
 	}
 
@@ -47,7 +47,7 @@ func TestStartServesAndSubscribeReceivesEvents(t *testing.T) {
 	}
 
 	second := startTest(t)
-	if second.Serving {
+	if second.Serving() {
 		t.Fatal("a second server should see that the socket is taken")
 	}
 	second.Close()
@@ -68,7 +68,7 @@ func TestStartReplacesStaleSocket(t *testing.T) {
 
 	s := startTest(t)
 	defer s.Close()
-	if !s.Serving {
+	if !s.Serving() {
 		t.Fatal("a stale socket file should be replaced")
 	}
 }
@@ -124,7 +124,7 @@ func TestDevNameKeepsItsOwnSocketAndDatabase(t *testing.T) {
 	}
 	defer dev.Close()
 
-	if !real.Serving || !dev.Serving {
+	if !real.Serving() || !dev.Serving() {
 		t.Fatal("feedhatch and feedhatch-dev should each own their own socket")
 	}
 	if _, err := dev.Store.AddFeed(store.Feed{URL: "https://example.com/dev.xml"}); err != nil {
@@ -188,5 +188,47 @@ func TestCloseWaitsForAFetchInProgress(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Close should cancel the fetch and return")
+	}
+}
+
+func TestListenerTakesOverWhenTheOwnerStops(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	previous := takeOverInterval
+	takeOverInterval = 20 * time.Millisecond
+	t.Cleanup(func() { takeOverInterval = previous })
+
+	owner := startTest(t)
+	listener := startTest(t)
+	defer listener.Close()
+	if !owner.Serving() || listener.Serving() {
+		t.Fatal("the first process should own the socket, the second only listen")
+	}
+
+	events := make(chan event.Event, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	Connect(ctx, "feedhatch", func(e event.Event) { events <- e })
+	waitForEvent(t, events) // connected to the owner
+
+	owner.Close()
+	deadline := time.After(5 * time.Second)
+	for !listener.Serving() {
+		select {
+		case <-deadline:
+			t.Fatal("the listener should take over the socket")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if !Running("feedhatch") {
+		t.Fatal("the socket should be served again")
+	}
+
+	// The client reconnects to the new owner and hears its events.
+	for e := waitForEvent(t, events); e.Type != event.Connected; e = waitForEvent(t, events) {
+	}
+	time.Sleep(50 * time.Millisecond)
+	listener.roundDone(nil)
+	for e := waitForEvent(t, events); e.Type != event.Round; e = waitForEvent(t, events) {
 	}
 }

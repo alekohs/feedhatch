@@ -69,6 +69,12 @@ func (s *Server) serve(l net.Listener) {
 func (s *Server) add(conn net.Conn) {
 	sub := &subscriber{events: make(chan []byte, 16)}
 	s.mu.Lock()
+	if s.closed {
+		// Accepted just before Close: close it too, so the client reconnects elsewhere.
+		s.mu.Unlock()
+		conn.Close()
+		return
+	}
 	s.subscribers[sub] = struct{}{}
 	s.mu.Unlock()
 
