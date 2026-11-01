@@ -993,6 +993,7 @@ t  Växla tema
 I  Visa/dölj bilder i artiklar (kitty och Ghostty)
 o  Öppna länken på markörens rad (flera: välj med siffra), annars artikeln · klicka på en länk för att öppna den
 O  Visa bokstäver vid alla synliga länkar; skriv bokstäverna för att öppna en
+F  Hämta hela artikeln från webbsidan (för flöden med bara en ingress)
 < / >  Smalare/bredare kolumn (kanten intill fokus) · = standardbredd
 Dra en kolumnkant med musen för att ändra bredden
 ?  Hjälp · Esc stäng · q avsluta

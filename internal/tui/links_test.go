@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -180,5 +182,53 @@ func TestLinkListAtTheEnd(t *testing.T) {
 	a.body, a.links = parser.Text(`<p>No links.</p>`)
 	if strings.Contains(strings.Join(m.readerLines(m.readerWidth()), "\n"), "Länkar") {
 		t.Fatal("an article without links needs no list")
+	}
+}
+
+func TestFFetchesTheFullArticle(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body><nav>Menu Subscribe</nav><article>
+<p>The full article has a first paragraph with plenty of words so that it is found as the main content of this page.</p>
+<p>And a second paragraph that the teaser in the feed did not include, with more words to make the article long enough.</p>
+</article><footer>Cookie settings</footer></body></html>`))
+	}))
+	t.Cleanup(page.Close)
+
+	m, _ := linkModel(t)
+	a := m.currentArticle()
+	a.link, a.body = page.URL, "Only a teaser that stops in the middle of"
+	updated, cmd := m.Update(keyMessage("F"))
+	m = updated.(Model)
+	if m.status != "Hämtar hela artikeln…" || cmd == nil {
+		t.Fatalf("F should start fetching, status %q", m.status)
+	}
+	for _, msg := range run(cmd) {
+		if full, ok := msg.(fullArticleMsg); ok {
+			m = update(m, full)
+		}
+	}
+	// Normalize whitespace: the text wraps differently depending on the reader width.
+	text := strings.Join(strings.Fields(parser.Plain(strings.Join(m.readerLines(m.readerWidth()), "\n"))), " ")
+	if !strings.Contains(text, "a second paragraph that the teaser in the feed did not include") || strings.Contains(text, "Only a teaser") {
+		t.Fatalf("the reader should show the full article:\n%s", text)
+	}
+	if m.tone != toneOK {
+		t.Fatalf("status = %q", m.status)
+	}
+
+	articles, err := m.store.Articles(m.currentFeed().id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stored := range articles {
+		if stored.ID == a.id && !strings.Contains(stored.Content, "did not include") {
+			t.Fatal("the full article should be saved so it is still there next time")
+		}
+	}
+
+	a.link = ""
+	m = press(m, "F")
+	if m.tone != toneWarn {
+		t.Fatal("F without a link should warn")
 	}
 }

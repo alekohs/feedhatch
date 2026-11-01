@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"alekohs/feedhatch/internal/event"
+	"alekohs/feedhatch/internal/feed"
 	"alekohs/feedhatch/internal/parser"
 	"alekohs/feedhatch/internal/store"
 )
@@ -326,6 +328,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.logTick()
 	case imageLoadedMsg:
 		m.imageLoaded(msg)
+	case fullArticleMsg:
+		m.fullArticleLoaded(msg)
 	case tea.MouseClickMsg:
 		if mouse := msg.Mouse(); mouse.Button == tea.MouseLeft {
 			m.dragging = m.borderAt(mouse.X, mouse.Y)
@@ -543,6 +547,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "O":
 			if m.reading || m.threeColumns() {
 				m.startHints()
+			}
+		case "F":
+			if a := m.currentArticle(); (m.reading || m.threeColumns()) && a != nil {
+				if a.link == "" {
+					m.status, m.tone = "Artikeln har ingen länk att hämta.", toneWarn
+					break
+				}
+				m.status = "Hämtar hela artikeln…"
+				return m, fetchFullArticle(m.store, a.id, a.link)
 			}
 		case "I":
 			switch {
@@ -1213,4 +1226,37 @@ func (m *Model) openFromLine() {
 			m.status, m.tone = "Artikeln har ingen länk.", toneWarn
 		}
 	}
+}
+
+// fullArticleMsg carries the full article fetched with F from the article's page.
+type fullArticleMsg struct {
+	id   int64
+	html string
+	err  error
+}
+
+func fetchFullArticle(st *store.Store, id int64, link string) tea.Cmd {
+	return func() tea.Msg {
+		html, err := feed.FullArticle(context.Background(), link)
+		if err == nil {
+			err = st.SetContent(id, html)
+		}
+		return fullArticleMsg{id: id, html: html, err: err}
+	}
+}
+
+func (m *Model) fullArticleLoaded(msg fullArticleMsg) {
+	if msg.err != nil {
+		m.status, m.tone = "Kunde inte hämta hela artikeln: "+msg.err.Error(), toneErr
+		return
+	}
+	for f := range m.feeds {
+		for i := range m.feeds[f].articles {
+			if a := &m.feeds[f].articles[i]; a.id == msg.id {
+				a.body, a.links = parser.Text(msg.html)
+			}
+		}
+	}
+	m.status, m.tone = "Hämtade hela artikeln.", toneOK
+	m.ensureLineVisible()
 }

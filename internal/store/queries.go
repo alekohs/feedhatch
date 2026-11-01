@@ -161,3 +161,9 @@ func (s *Store) SetCategory(feedID int64, category string) error {
 	_, err := s.db.Exec("UPDATE feeds SET category = $1 WHERE id = $2", category, feedID)
 	return err
 }
+
+// SetContent replaces an article's content, e.g. with the full article from its page.
+func (s *Store) SetContent(articleID int64, content string) error {
+	_, err := s.db.Exec("UPDATE articles SET content = $1 WHERE id = $2", content, articleID)
+	return err
+}
