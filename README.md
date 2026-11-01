@@ -12,6 +12,38 @@ make run-headless  # only fetch feeds, no TUI; logs in the terminal
 make test
 ```
 
+## Install
+
+Packages are attached to each [GitHub release](https://github.com/alekohs/feedhatch/releases).
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alekohs/feedhatch/main/install.sh | bash
+```
+
+The script detects the system and installs the latest release (or the one
+given as an argument, e.g. `bash install.sh 0.2.0`), checking every download
+against the release checksums:
+
+| System | How |
+| --- | --- |
+| Arch and derivatives | builds `packaging/arch/PKGBUILD` with makepkg and installs it with pacman (run as your user) |
+| Debian, Ubuntu and derivatives | installs the `.deb` with apt |
+| Fedora, RHEL, openSUSE | installs the `.rpm` with dnf or zypper |
+| macOS | the binary into `/usr/local/bin` |
+| Other Linux | the binary into `~/.local/bin`, plus launcher entry, icon and user service under your home |
+
+You can also download the packages yourself from the release.
+
+The Linux packages install `feedhatch` with an app launcher entry: started from
+the launcher it opens in your default terminal, typed in a terminal it runs
+right there. To keep fetching while the TUI is closed:
+
+```sh
+systemctl --user enable --now feedhatch
+```
+
+`feedhatch -version` prints the installed version.
+
 ## Moving to another computer
 
 ```sh
@@ -26,6 +58,15 @@ it, and upgrades the imported copy to the current schema. Stop the daemon
 (`systemctl --user stop feedhatch`) and close the TUI before importing; import
 refuses to run while feedhatch is running. Add `-dev` to either command for the
 development data.
+
+## Releasing
+
+Push a tag like `v0.2.0`; the release workflow runs the tests and GoReleaser,
+which attaches tarballs, `.deb` and `.rpm` packages and checksums to the GitHub
+release. `install.sh` always installs the latest release and sets the version in
+`packaging/arch/PKGBUILD` itself, so the PKGBUILD needs no bump.
+`make release-snapshot` builds everything locally into `dist/` without
+publishing.
 
 ## Development
 
@@ -58,7 +99,8 @@ Inside the TUI, `!` shows the same file.
 
 ## Running as a service
 
-`make install-service` builds feedhatch into `~/.local/bin`, installs
+With a package installed, use `systemctl --user enable --now feedhatch` (see
+Install). For development, `make install-service` builds feedhatch into `~/.local/bin`, installs
 `init/feedhatch.service` as a systemd user service and starts it. It runs
 `feedhatch -daemon` in the background, starts at login, and restarts if it
 crashes. Run it again after pulling changes to update the binary.

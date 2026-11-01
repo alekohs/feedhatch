@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=feedhatch
+GenericName=RSS Reader
+Comment=Keyboard-driven RSS reader in the terminal
+Exec=feedhatch
+Icon=feedhatch
+Terminal=true
+Categories=Network;News;ConsoleOnly;
+Keywords=rss;atom;feed;news;reader;

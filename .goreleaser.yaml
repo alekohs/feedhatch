@@ -1,0 +1,45 @@
+version: 2
+project_name: feedhatch
+
+builds:
+  - main: ./cmd/feedhatch
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - packaging/linux/*
+
+nfpms:
+  - package_name: feedhatch
+    file_name_template: "{{ .ConventionalFileName }}"
+    maintainer: Alexander Kohkoinen Morin <alexander@alekoh.se>
+    homepage: https://github.com/alekohs/feedhatch
+    description: Keyboard-driven RSS reader in the terminal, with an optional background fetcher.
+    license: MIT
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    contents:
+      - src: packaging/linux/feedhatch.desktop
+        dst: /usr/share/applications/feedhatch.desktop
+      - src: packaging/linux/feedhatch.svg
+        dst: /usr/share/icons/hicolor/scalable/apps/feedhatch.svg
+      - src: packaging/linux/feedhatch.service
+        dst: /usr/lib/systemd/user/feedhatch.service
+      - src: LICENSE
+        dst: /usr/share/licenses/feedhatch/LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc

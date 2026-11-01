@@ -1,4 +1,4 @@
-.PHONY: help clean clean-db run run-dev run-headless run-headless-dev run-mock dev-logs install-service service-logs test format format-check vet lint package
+.PHONY: help clean clean-db run run-dev run-headless run-headless-dev run-mock dev-logs install-service service-logs test format format-check vet lint package release-snapshot
 
 # amd64, arm64
 ARCH ?= amd64
@@ -69,6 +69,9 @@ vet: ## Analyze code for errors
 
 lint: ## Check with linter
 	@golangci-lint run ./...
+
+release-snapshot: ## Build all release packages locally into dist/ without publishing
+	@go run github.com/goreleaser/goreleaser/v2@v2.18.3 release --snapshot --clean
 
 package: clean format-check vet lint ## Package default with linux
 	@GOOS=${OS} GOARCH=${ARCH} go build -a -o bin/${OUTPUT_NAME}/ -ldflags='-s -w' ./...

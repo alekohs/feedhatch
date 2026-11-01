@@ -24,6 +24,9 @@ import (
 	"alekohs/feedhatch/internal/tui"
 )
 
+// version is set at build time, e.g. -ldflags "-X main.version=1.0.0".
+var version = "dev"
+
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "export" || os.Args[1] == "import") {
 		runTransfer(os.Args[1], os.Args[2:])
@@ -35,6 +38,7 @@ func main() {
 	mock := flag.Bool("mock", false, "run with sample data in a temporary database")
 	dev := flag.Bool("dev", false, "use a separate development database and socket (feedhatch-dev)")
 	logSize := flag.Int("log-size", 10, "rotate the TUI's log file at this size in MB, keeping one old file")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.BoolVar(&daemon, "daemon", false, "only fetch feeds on their intervals, without the TUI")
 	flag.BoolVar(&daemon, "d", false, "only fetch feeds on their intervals, without the TUI")
 	flag.Usage = func() {
@@ -42,6 +46,11 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("feedhatch", version)
+		return
+	}
 
 	if daemon && *mock {
 		fmt.Fprintln(os.Stderr, "-mock can't be combined with -daemon: mock mode never fetches")
