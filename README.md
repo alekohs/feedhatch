@@ -235,7 +235,8 @@ clickable themselves, which in tmux needs `set -as terminal-features ',*:hyperli
 In kitty and Ghostty, images in articles are shown in the reader (using the kitty
 graphics protocol), including the cover image many feeds attach to each item.
 They're downloaded when you open an article and cached in
-`~/.cache/feedhatch/images`; tiny tracking pixels are skipped. `I` turns images
+`~/.cache/feedhatch/images`, which is kept below 200 MB by removing the least
+recently used images when feedhatch starts; tiny tracking pixels are skipped. `I` turns images
 off and on. In other terminals feedhatch never downloads images and shows
 `[Bild: <alt text>]` instead.
 

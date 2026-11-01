@@ -20,6 +20,7 @@ import (
 	"alekohs/feedhatch/internal/constants"
 	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/graphics"
+	"alekohs/feedhatch/internal/images"
 	"alekohs/feedhatch/internal/server"
 	"alekohs/feedhatch/internal/store"
 	"alekohs/feedhatch/internal/tui"
@@ -113,10 +114,17 @@ func runTUI(name string, mock bool, logSize int) {
 		announce = client.Send
 	}
 
+	imageDir := filepath.Join(filepath.Dir(logPath), "images")
+	go func() {
+		if err := images.Prune(imageDir, images.MaxCache); err != nil {
+			logger.Warn("could not prune the image cache", "err", err)
+		}
+	}()
+
 	model, err := tui.New(srv.Store, updates, announce, tui.Config{
 		Mock:     mock,
 		LogPath:  logPath,
-		ImageDir: filepath.Join(filepath.Dir(logPath), "images"),
+		ImageDir: imageDir,
 		Images:   graphics.Supported(),
 	})
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"golang.org/x/image/draw"
@@ -26,6 +27,10 @@ import (
 const (
 	maxBytes = 20 << 20 // larger downloads are cut off and fail to decode
 	maxWidth = 1600     // wider images are scaled down before they are sent to the terminal
+
+	// MaxCache is how large the image cache may grow; Prune removes the least
+	// recently used images beyond it.
+	MaxCache = 200 << 20
 )
 
 // ErrTiny is returned for images too small to show, such as tracking pixels.
@@ -37,7 +42,10 @@ func Load(src, dir string) (image.Image, error) {
 	path := filepath.Join(dir, hex.EncodeToString(sum[:]))
 
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if err == nil {
+		now := time.Now()
+		_ = os.Chtimes(path, now, now) // marks the image as recently used for Prune
+	} else {
 		if data, err = download(src); err != nil {
 			return nil, err
 		}
@@ -100,4 +108,42 @@ func save(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// Prune deletes the least recently used cached images in dir until the cache is at most
+// limit bytes.
+func Prune(dir string, limit int64) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	type file struct {
+		path string
+		size int64
+		used time.Time
+	}
+	var files []file
+	var total int64
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		files = append(files, file{filepath.Join(dir, e.Name()), info.Size(), info.ModTime()})
+		total += info.Size()
+	}
+	slices.SortFunc(files, func(a, b file) int { return a.used.Compare(b.used) })
+	for _, f := range files {
+		if total <= limit {
+			break
+		}
+		if err := os.Remove(f.path); err != nil {
+			return err
+		}
+		total -= f.size
+	}
+	return nil
 }

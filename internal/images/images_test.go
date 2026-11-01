@@ -7,7 +7,11 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func pngBytes(t *testing.T, w, h int) []byte {
@@ -80,5 +84,56 @@ func TestLoadRejectsTinyMissingAndBrokenImages(t *testing.T) {
 	}
 	if _, err := Load(server.URL+"/broken", dir); err == nil {
 		t.Fatal("data that is not an image should fail")
+	}
+}
+
+func TestPruneRemovesTheLeastRecentlyUsedImages(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	for i, name := range []string{"oldest", "older", "newer", "newest"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, make([]byte, 100), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		when := now.Add(time.Duration(i-4) * time.Hour)
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := Prune(dir, 250); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		left = append(left, e.Name())
+	}
+	if strings.Join(left, ",") != "newer,newest" {
+		t.Fatalf("left = %v, want the two most recently used", left)
+	}
+	if err := Prune(filepath.Join(dir, "missing"), 1); err != nil {
+		t.Fatalf("a cache that doesn't exist yet is fine: %v", err)
+	}
+}
+
+func TestCacheHitMarksTheImageAsUsed(t *testing.T) {
+	server, _ := serve(t, map[string][]byte{"/a.png": pngBytes(t, 20, 20)})
+	dir := t.TempDir()
+	if _, err := Load(server.URL+"/a.png", dir); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	path := filepath.Join(dir, entries[0].Name())
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(server.URL+"/a.png", dir); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(path); time.Since(info.ModTime()) > time.Minute {
+		t.Fatal("reading a cached image should mark it as recently used")
 	}
 }
