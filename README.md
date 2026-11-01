@@ -225,7 +225,8 @@ keeps the previous query and cursor position. `?` still opens help.
 ## Links
 
 Links in articles are underlined in color and open in your browser when clicked
-(or with `o` on their line). Every article ends with a **Läs hela artikeln**
+(or with `o` on their line). A **Länkar** section at the end lists every link
+address once, and every article ends with a **Läs hela artikeln**
 link, handy for feeds that only carry a teaser. Inside tmux, clicks need
 `set -g mouse on`; terminals that support hyperlinks also make links
 clickable themselves, which in tmux needs `set -as terminal-features ',*:hyperlinks'`.

@@ -156,3 +156,29 @@ func TestOAsksWhichLinkWhenALineHasSeveral(t *testing.T) {
 		t.Fatal("a digit without a link should cancel, not open anything")
 	}
 }
+
+func TestLinkListAtTheEnd(t *testing.T) {
+	m, opened := linkModel(t)
+	a := m.currentArticle()
+	a.body, a.links = parser.Text(`<p><a href="/notes">notes</a>, <a href="https://other.example/x">other</a> and <a href="/notes">notes again</a>.</p>`)
+	lines := m.readerLines(m.readerWidth())
+	text := parser.Plain(strings.Join(lines, "\n"))
+
+	if !strings.Contains(text, "## Länkar\n\n1. blog.example/notes\n2. other.example/x\n") {
+		t.Fatalf("want a numbered list of the unique links:\n%s", text)
+	}
+	for i, line := range lines {
+		if strings.Contains(parser.Plain(line), "2. other.example/x") {
+			m.line = i
+		}
+	}
+	press(m, "o")
+	if len(*opened) != 1 || (*opened)[0] != "https://other.example/x" {
+		t.Fatalf("opened %v, want the listed link", *opened)
+	}
+
+	a.body, a.links = parser.Text(`<p>No links.</p>`)
+	if strings.Contains(strings.Join(m.readerLines(m.readerWidth()), "\n"), "Länkar") {
+		t.Fatal("an article without links needs no list")
+	}
+}

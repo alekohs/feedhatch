@@ -537,6 +537,19 @@ func (m Model) readerRows(width int) (lines []string, imageAt map[string]int) {
 		}
 		lines = append(lines, strings.Split(ansi.Wrap(line, max(1, width), ""), "\n")...)
 	}
+	if len(a.links) > 0 {
+		lines = append(lines, "", "## Länkar", "")
+		seen := map[string]bool{}
+		for i, href := range a.links {
+			url := resolveURL(a.link, href)
+			if seen[url] {
+				continue
+			}
+			seen[url] = true
+			item := fmt.Sprintf("%d. %s%s%s", len(seen), parser.LinkStart(i+1), strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://"), parser.LinkOff)
+			lines = append(lines, strings.Split(ansi.Wrap(item, max(1, width), "/"), "\n")...)
+		}
+	}
 	if a.link != "" {
 		// Many feeds only carry a teaser; the last link is always the article itself.
 		lines = append(lines, "", parser.LinkStart(len(a.links)+1)+"Läs hela artikeln"+parser.LinkOff)
