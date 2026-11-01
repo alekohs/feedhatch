@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mmcdole/gofeed"
 
@@ -206,5 +207,47 @@ func TestUpdateFeedsStopsWithoutReportingWhenCancelled(t *testing.T) {
 	err = UpdateFeeds(ctx, s, func(feed string, added int, err error) { reports = append(reports, feed) })
 	if err != nil || len(reports) != 0 {
 		t.Fatalf("err = %v, reports = %v: a cancelled round should stop quietly", err, reports)
+	}
+}
+
+func TestUpdateFeedFetchesOnlyThatFeedRightAway(t *testing.T) {
+	requests := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests[r.URL.Path]++
+		_, _ = io.WriteString(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
+<item><title>New post</title><guid>1</guid></item></channel></rss>`)
+	}))
+	t.Cleanup(server.Close)
+
+	s, err := store.OpenPath(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	added, err := s.AddFeed(store.Feed{URL: server.URL + "/added"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddFeed(store.Feed{URL: server.URL + "/other"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFetched(added, time.Now().Unix()); err != nil { // not due: must be fetched anyway
+		t.Fatal(err)
+	}
+
+	var reports []string
+	report := func(feed string, n int, err error) { reports = append(reports, fmt.Sprint(feed, n, err)) }
+	if err := UpdateFeed(context.Background(), s, added, report); err != nil {
+		t.Fatal(err)
+	}
+	if requests["/added"] != 1 || requests["/other"] != 0 || len(reports) != 1 {
+		t.Fatalf("requests = %v, reports = %v: only the added feed should be fetched", requests, reports)
+	}
+	if articles, _ := s.Articles(added); len(articles) != 1 {
+		t.Fatalf("got %d articles, want the fetched one", len(articles))
+	}
+
+	if err := UpdateFeed(context.Background(), s, 999, report); err == nil {
+		t.Fatal("an unknown feed id should fail")
 	}
 }

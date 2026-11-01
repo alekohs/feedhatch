@@ -59,30 +59,56 @@ func UpdateFeeds(ctx context.Context, s *store.Store, report func(feed string, a
 		if f.FetchedAt+f.Interval*60 > now.Unix() {
 			continue
 		}
-
-		name := f.Name
-		if name == "" {
-			name = f.URL
-		}
-
-		var added int
-		result, err := Fetch(ctx, f)
-		if ctx.Err() != nil {
+		if err := update(ctx, s, f, now, report); ctx.Err() != nil {
 			return nil
-		}
-		if err == nil {
-			added, err = s.SaveArticles(f.ID, articles(result))
-		}
-		if err == nil {
-			err = s.SetFetched(f.ID, now.Unix())
-		}
-		report(name, added, err)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", f.URL, err))
+		} else if err != nil {
+			errs = append(errs, err)
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+// UpdateFeed fetches the feed with id right away, due or not, e.g. just after it was added.
+func UpdateFeed(ctx context.Context, s *store.Store, id int64, report func(feed string, added int, err error)) error {
+	feeds, err := s.Feeds()
+	if err != nil {
+		return err
+	}
+	for _, f := range feeds {
+		if f.ID == id {
+			if err := update(ctx, s, f, time.Now(), report); ctx.Err() == nil {
+				return err
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no feed with id %d", id)
+}
+
+// update fetches one feed and saves its new articles; a cancelled fetch is not reported.
+func update(ctx context.Context, s *store.Store, f store.Feed, now time.Time, report func(feed string, added int, err error)) error {
+	name := f.Name
+	if name == "" {
+		name = f.URL
+	}
+
+	var added int
+	result, err := Fetch(ctx, f)
+	if ctx.Err() != nil {
+		return nil
+	}
+	if err == nil {
+		added, err = s.SaveArticles(f.ID, articles(result))
+	}
+	if err == nil {
+		err = s.SetFetched(f.ID, now.Unix())
+	}
+	report(name, added, err)
+	if err != nil {
+		return fmt.Errorf("%s: %w", f.URL, err)
+	}
+	return nil
 }
 
 func articles(result *gofeed.Feed) []store.Article {

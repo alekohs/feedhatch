@@ -143,7 +143,7 @@ func TestArticleListEmptyStates(t *testing.T) {
 	m := sizedModel(t)
 	m.feeds[0].articles = nil
 	m.view = feedView
-	if out := m.articleList(60, 10); !strings.Contains(out, "Hämtas vid nästa runda (inom en minut).") {
+	if out := m.articleList(60, 10); !strings.Contains(out, "Nya flöden hämtas direkt") {
 		t.Fatalf("real mode empty feed text: %q", out)
 	}
 	m.mock = true

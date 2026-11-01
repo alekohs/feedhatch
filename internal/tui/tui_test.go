@@ -401,6 +401,12 @@ func TestSavedChangesAreAnnounced(t *testing.T) {
 	if events[2].Category != "Ny kategori" || events[3].Interval != 45 || events[4].Feed != "example.org" {
 		t.Fatalf("unexpected events: %+v", events[2:])
 	}
+
+	for _, e := range events {
+		if e.Type == event.FeedAdded && e.FeedID == 0 {
+			t.Fatal("feed_added should carry the new feed's id, so it can be fetched right away")
+		}
+	}
 }
 
 func TestDeleteFeedNeedsConfirmation(t *testing.T) {

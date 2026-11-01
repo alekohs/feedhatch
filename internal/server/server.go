@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"alekohs/feedhatch/internal/event"
+	"alekohs/feedhatch/internal/feed"
 	"alekohs/feedhatch/internal/store"
 	"alekohs/feedhatch/internal/worker"
 )
@@ -33,8 +34,9 @@ type Server struct {
 
 	logger      *slog.Logger
 	serving     atomic.Bool
-	listener    net.Listener // guarded by mu
-	closed      bool         // guarded by mu; set by Close so late connections are refused
+	listener    net.Listener    // guarded by mu
+	closed      bool            // guarded by mu; set by Close so late connections are refused
+	ctx         context.Context // the server's lifetime, for work started later
 	stop        context.CancelFunc
 	worker      sync.WaitGroup
 	mu          sync.Mutex
@@ -51,7 +53,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	}
 
 	ctx, stop := context.WithCancel(ctx)
-	s := &Server{Store: st, logger: logger, stop: stop, subscribers: make(map[*subscriber]struct{})}
+	s := &Server{Store: st, logger: logger, ctx: ctx, stop: stop, subscribers: make(map[*subscriber]struct{})}
 
 	// Mock feeds point at real URLs; fetching them would mix live articles into the sample data.
 	if opts.Mock {
@@ -111,10 +113,12 @@ func (s *Server) claim(ctx context.Context, l net.Listener) {
 // closed database, then closes the socket, its client connections and the store.
 func (s *Server) Close() {
 	s.logger.Info("closing")
+	s.mu.Lock()
+	s.closed = true // no new work after this, so the wait below is final
+	s.mu.Unlock()
 	s.stop()
 	s.worker.Wait()
 	s.mu.Lock()
-	s.closed = true
 	if s.listener != nil {
 		s.listener.Close()
 	}
@@ -155,4 +159,20 @@ func openStore(opts Options) (*store.Store, error) {
 		return store.OpenMock()
 	}
 	return store.Open(opts.Name)
+}
+
+// fetchNow fetches one feed right away, e.g. one a client just added, then tells
+// clients that a round finished so they show its articles.
+func (s *Server) fetchNow(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || !s.Serving() {
+		return
+	}
+	s.worker.Go(func() {
+		err := feed.UpdateFeed(s.ctx, s.Store, id, s.report)
+		if s.ctx.Err() == nil {
+			s.roundDone(err)
+		}
+	})
 }

@@ -232,3 +232,43 @@ func TestListenerTakesOverWhenTheOwnerStops(t *testing.T) {
 	for e := waitForEvent(t, events); e.Type != event.Round; e = waitForEvent(t, events) {
 	}
 }
+
+func TestAddedFeedIsFetchedRightAway(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
+<item><title>First post</title><guid>1</guid></item></channel></rss>`))
+	}))
+	t.Cleanup(feedServer.Close)
+
+	s := startTest(t)
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	events := make(chan event.Event, 16)
+	client := Connect(ctx, "feedhatch", func(e event.Event) { events <- e })
+	waitForEvent(t, events) // connected
+	time.Sleep(50 * time.Millisecond)
+
+	id, err := s.Store.AddFeed(store.Feed{URL: feedServer.URL, Name: "New feed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Send(event.Event{Type: event.FeedAdded, Feed: "New feed", FeedID: id})
+
+	deadline := time.After(5 * time.Second)
+	for got := map[string]bool{}; !got[event.Fetched] || !got[event.Round]; {
+		select {
+		case e := <-events:
+			if e.Type == event.Fetched && e.Feed == "New feed" && e.New == 1 || e.Type == event.Round && got[event.Fetched] {
+				got[e.Type] = true
+			}
+		case <-deadline:
+			t.Fatal("the added feed should be fetched right away, followed by a round event")
+		}
+	}
+	if articles, _ := s.Store.Articles(id); len(articles) != 1 {
+		t.Fatalf("got %d articles, want the new feed's article saved", len(articles))
+	}
+}

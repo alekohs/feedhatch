@@ -204,7 +204,7 @@ previews the selected article without marking it read; opening it with `enter`,
 | `q` / `Ctrl+c` | Quit (`Ctrl+c` also works in forms) |
 
 In forms, `Tab` switches field, `Enter` moves on/saves, `Ctrl+u` clears the
-current field and `Esc` cancels. A new feed gets its articles on the next fetch round, within a minute.
+current field and `Esc` cancels. A new feed is fetched right away, so its articles show up within seconds.
 Articles are marked as read when opened. `●` indicates unread content.
 
 Reader motions also extend an active `v` selection. For example, `v` then `}`

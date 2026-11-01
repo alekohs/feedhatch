@@ -1097,7 +1097,7 @@ func (m *Model) saveForm() {
 
 		m.feeds = append(m.feeds, subscription{id: id, interval: interval, name: name, url: address, category: category})
 		m.selectView(feedView, len(m.feeds)-1)
-		m.publish(event.Event{Type: event.FeedAdded, Feed: name, Category: category, Interval: interval})
+		m.publish(event.Event{Type: event.FeedAdded, Feed: name, FeedID: id, Category: category, Interval: interval})
 	}
 	m.form, m.focus, m.reading, m.scroll, m.visual = nil, feedsPanel, false, 0, false
 }

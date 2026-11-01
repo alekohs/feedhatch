@@ -96,6 +96,9 @@ func (s *Server) add(conn net.Conn) {
 			if json.Unmarshal(scanner.Bytes(), &e) == nil && event.FromClient(e.Type) {
 				s.logger.Info("client event", "type", e.Type, "feed", e.Feed)
 				s.broadcast(e)
+				if e.Type == event.FeedAdded && e.FeedID > 0 {
+					s.fetchNow(e.FeedID)
+				}
 			}
 		}
 		s.remove(sub)

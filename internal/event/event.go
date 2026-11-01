@@ -6,6 +6,7 @@ import "time"
 type Event struct {
 	Type      string    `json:"type"`
 	Feed      string    `json:"feed,omitempty"`
+	FeedID    int64     `json:"feed_id,omitempty"`
 	New       int       `json:"new,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	ArticleID int64     `json:"article_id,omitempty"`
@@ -27,9 +28,9 @@ const Connected = "connected"
 
 // Sent by clients after they changed the store, all naming the Feed.
 const (
-	Read        = "read"   // ArticleID, Article
-	Unread      = "unread" // ArticleID, Article
-	FeedAdded   = "feed_added"
+	Read        = "read"       // ArticleID, Article
+	Unread      = "unread"     // ArticleID, Article
+	FeedAdded   = "feed_added" // FeedID: the fetching process fetches it right away
 	FeedDeleted = "feed_deleted"
 	FeedRead    = "feed_read" // all its articles were marked read
 	Category    = "category"  // Category

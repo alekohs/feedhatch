@@ -452,7 +452,7 @@ func (m Model) articleList(width, height int) string {
 		case m.view == feedView && m.mock:
 			return "Inga artiklar ännu.\n\n" + ansi.Wrap("Flödet är tillagt lokalt. RSS-hämtningen är inte inkopplad i mockläget.", width, "")
 		case m.view == feedView:
-			return "Inga artiklar ännu.\n\n" + ansi.Wrap("Hämtas vid nästa runda (inom en minut).", width, "")
+			return "Inga artiklar ännu.\n\n" + ansi.Wrap("Nya flöden hämtas direkt; artiklarna dyker upp här om en stund.", width, "")
 		}
 		return "Inga artiklar ännu."
 	}
