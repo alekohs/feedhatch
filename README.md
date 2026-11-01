@@ -226,6 +226,15 @@ wrap. Multiple occurrences on the same row count as one navigation stop.
 repeats the previous search; `Ctrl+u` clears the input. Cancelling the prompt
 keeps the previous query and cursor position. `?` still opens help.
 
+## Mouse
+
+Click a feed or an article to select it; clicking the selected article opens
+it. The wheel scrolls whatever is under the mouse. In the reader, a click moves
+the cursor and dragging over the text selects whole lines and copies them to the
+clipboard when you let go (dragging past the edge scrolls). Clicking the status
+line copies its message, handy for error messages. Hold Shift while dragging to
+use your terminal's own selection instead.
+
 ## Notifications
 
 feedhatch can tell you about new articles with a desktop notification

@@ -98,6 +98,7 @@ type Model struct {
 	sidebarWidth    int // 0 uses the default width; set by dragging or < and >
 	listWidth       int
 	dragging        border
+	selecting       bool // a mouse drag over the reader text is selecting lines
 	gallery         *gallery
 	imageDir        string
 	imagesSupported bool
@@ -335,20 +336,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fullArticleLoaded(msg)
 	case tea.MouseClickMsg:
 		if mouse := msg.Mouse(); mouse.Button == tea.MouseLeft {
-			m.dragging = m.borderAt(mouse.X, mouse.Y)
-			if url := m.linkAt(mouse.X, mouse.Y); m.dragging == noBorder && url != "" {
-				m.openLink(url)
-			}
+			return m, m.mouseClick(mouse.X, mouse.Y)
 		}
 	case tea.MouseMotionMsg:
-		if m.dragging != noBorder {
-			m.moveBorder(m.dragging, msg.Mouse().X)
-		}
+		mouse := msg.Mouse()
+		m.mouseMotion(mouse.X, mouse.Y)
 	case tea.MouseReleaseMsg:
-		if m.dragging != noBorder {
-			m.dragging = noBorder
-			m.saveSettings()
-		}
+		return m, m.mouseRelease()
+	case tea.MouseWheelMsg:
+		mouse := msg.Mouse()
+		m.mouseWheel(mouse.X, mouse.Y, mouse.Button == tea.MouseWheelDown)
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Wrapped row numbers change on resize; do not silently copy a new range.

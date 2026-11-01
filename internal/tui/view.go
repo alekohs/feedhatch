@@ -375,6 +375,39 @@ func (m Model) renderPanel(title, content string, width, height int, focused boo
 		Render(fit(inside, width-4, height-2))
 }
 
+// sidebarEntry is one row of the sidebar: a list, a feed, a category header or a gap.
+type sidebarEntry struct {
+	view     listView // for list and feed rows
+	feed     int      // index into m.feeds for feed rows, -1 otherwise
+	category string   // for header rows
+	header   bool
+	gap      bool
+}
+
+// sidebarEntries are the sidebar's rows in order, and the row of the current selection.
+func (m Model) sidebarEntries() (entries []sidebarEntry, selected int) {
+	entries = []sidebarEntry{{view: unreadView, feed: -1}, {view: allView, feed: -1}}
+	if m.view == allView {
+		selected = 1
+	}
+	for _, name := range m.categories() {
+		entries = append(entries, sidebarEntry{feed: -1, gap: true}, sidebarEntry{feed: -1, category: name, header: true})
+		for i, feed := range m.feeds {
+			if feed.category != name {
+				continue
+			}
+			if m.view == feedView && i == m.feedIndex {
+				selected = len(entries)
+			}
+			entries = append(entries, sidebarEntry{view: feedView, feed: i})
+		}
+	}
+	return entries, selected
+}
+
+// sidebarStart is the first sidebar row shown, so the selection stays visible.
+func sidebarStart(selected, height int) int { return max(0, selected-height+1) }
+
 func (m Model) sidebar(width, height int) string {
 	if len(m.feeds) == 0 {
 		return "Inga flöden ännu.\nTryck a för att lägga till."
@@ -385,25 +418,21 @@ func (m Model) sidebar(width, height int) string {
 		unread += unreadCount(feed)
 		total += len(feed.articles)
 	}
-	lines := []string{
-		m.sidebarRow("Olästa", unread, m.view == unreadView, p.normal(), width),
-		m.sidebarRow("Alla artiklar", total, m.view == allView, p.normal(), width),
-	}
-	selectedLine := 0
-	if m.view == allView {
-		selectedLine = 1
-	}
 	category := lipgloss.NewStyle().Foreground(p.category).Bold(true)
-	for _, name := range m.categories() {
-		lines = append(lines, "", category.Render(ansi.Truncate(strings.ToUpper(name), width, "…")))
-		for i, feed := range m.feeds {
-			if feed.category != name {
-				continue
-			}
-			selected := m.view == feedView && i == m.feedIndex
-			if selected {
-				selectedLine = len(lines)
-			}
+	entries, selectedLine := m.sidebarEntries()
+	var lines []string
+	for _, e := range entries {
+		switch {
+		case e.gap:
+			lines = append(lines, "")
+		case e.header:
+			lines = append(lines, category.Render(ansi.Truncate(strings.ToUpper(e.category), width, "…")))
+		case e.view == unreadView:
+			lines = append(lines, m.sidebarRow("Olästa", unread, m.view == unreadView, p.normal(), width))
+		case e.view == allView:
+			lines = append(lines, m.sidebarRow("Alla artiklar", total, m.view == allView, p.normal(), width))
+		default:
+			feed := m.feeds[e.feed]
 			nameStyle := lipgloss.NewStyle().Foreground(p.muted)
 			if unreadCount(feed) > 0 {
 				nameStyle = p.normal()
@@ -412,10 +441,10 @@ func (m Model) sidebar(width, height int) string {
 			if feed.notify {
 				name += " ♪"
 			}
-			lines = append(lines, m.sidebarRow(name, unreadCount(feed), selected, nameStyle, width))
+			lines = append(lines, m.sidebarRow(name, unreadCount(feed), m.view == feedView && e.feed == m.feedIndex, nameStyle, width))
 		}
 	}
-	start := max(0, selectedLine-height+1)
+	start := sidebarStart(selectedLine, height)
 	return strings.Join(lines[start:min(len(lines), start+height)], "\n")
 }
 
@@ -632,6 +661,17 @@ func (m Model) linkInLine(lines []string, i, col int) string {
 
 // linkAt returns the URL of the link at a mouse position in the reader, if any.
 func (m Model) linkAt(x, y int) string {
+	i, col, ok := m.readerLineAt(x, y)
+	if !ok || col < 0 {
+		return ""
+	}
+	return m.linkInLine(m.readerLines(m.readerWidth()), i, col)
+}
+
+// readerLineAt returns the reader line and text column under a mouse position. Rows
+// above or below the visible text give the line just outside it, so dragging past the
+// edge can scroll; ok is false outside the reader.
+func (m Model) readerLineAt(x, y int) (line, col int, ok bool) {
 	left, _, height := m.dimensions()
 	panel := left
 	switch {
@@ -639,22 +679,22 @@ func (m Model) linkAt(x, y int) string {
 		list, _ := m.columns()
 		panel = left + list
 	case !m.reading || m.form != nil || m.help || m.logOpen:
-		return ""
+		return 0, 0, false
+	}
+	if x < panel || x >= m.width {
+		return 0, 0, false
 	}
 	// The reader's text starts after the border, padding and "> " prefix, and below
 	// the header row, the border and the panel title.
 	row, col := y-3, x-panel-4
 	lines := m.readerLines(m.readerWidth())
 	visible := height - 4
-	if row < 0 || row >= visible || col < 0 {
-		return ""
-	}
 	scroll := m.scroll
 	if !m.reading {
 		scroll = 0
 	}
 	start := min(scroll, max(0, len(lines)-visible))
-	return m.linkInLine(lines, start+row, col)
+	return clamp(start+row, len(lines)), col, true
 }
 
 func (m Model) maxScroll() int {
@@ -1001,6 +1041,7 @@ O  Visa bokstäver vid alla synliga länkar; skriv bokstäverna för att öppna 
 F  Hämta hela artikeln från webbsidan (för flöden med bara en ingress)
 < / >  Smalare/bredare kolumn (kanten intill fokus) · = standardbredd
 Dra en kolumnkant med musen för att ändra bredden
+Mus: klicka för att välja (två klick öppnar artikeln) · hjulet rullar · dra över texten för att kopiera rader · klicka på statusraden för att kopiera meddelandet
 ?  Hjälp · Esc stäng · q avsluta
 !  Visa loggen (r läser om, Esc stänger)
 Ctrl+c  Avsluta, även i formulär
