@@ -673,7 +673,11 @@ func (m Model) reader(width, height int) string {
 	pattern := searchPattern(m.search.query)
 	matchStyle := lipgloss.NewStyle().Foreground(p.accent).Bold(true).Reverse(true)
 	levels, states := headingLevels(lines), inlineAtStart(lines)
-	look := readerLook{pattern: pattern, match: matchStyle, links: m.articleLinks(), linkColor: p.feed}
+	look := readerLook{pattern: pattern, match: matchStyle, links: m.articleLinks(), linkColor: p.feed,
+		hintStyle: lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(p.warn)}
+	if m.hints != nil {
+		look.hints = m.hints.labels
+	}
 	// readerLines starts with the article title (possibly wrapped), then the date line.
 	titleRows := 0
 	if a := m.currentArticle(); a != nil {
@@ -719,6 +723,8 @@ type readerLook struct {
 	match     lipgloss.Style
 	links     []string // absolute URLs, by link number - 1
 	linkColor color.Color
+	hints     map[int]string // O's labels, by link number, drawn before each link
+	hintStyle lipgloss.Style
 }
 
 var headingMarker = regexp.MustCompile(`^(#{1,6}) `)
@@ -807,11 +813,16 @@ func headingStyle(p palette, level int) lipgloss.Style {
 func renderReaderLine(prefix, line string, state inline, width int, style lipgloss.Style, look readerLook) string {
 	out := style.Render(prefix)
 	var part strings.Builder
+	labelled := 0 // the link whose hint label was drawn last, so each link gets it once
 	flush := func() {
 		if part.Len() == 0 {
 			return
 		}
 		partStyle := style.Bold(state.bold || style.GetBold()).Italic(state.italic)
+		if label := look.hints[state.link]; label != "" && state.link != labelled {
+			out += look.hintStyle.Render(label)
+		}
+		labelled = state.link
 		if state.link > 0 && state.link <= len(look.links) {
 			// An OSC 8 hyperlink: terminals that support it make the text clickable.
 			url := look.links[state.link-1]
@@ -981,6 +992,7 @@ r  Uppdatera flödena
 t  Växla tema
 I  Visa/dölj bilder i artiklar (kitty och Ghostty)
 o  Öppna länken på markörens rad (flera: välj med siffra), annars artikeln · klicka på en länk för att öppna den
+O  Visa bokstäver vid alla synliga länkar; skriv bokstäverna för att öppna en
 < / >  Smalare/bredare kolumn (kanten intill fokus) · = standardbredd
 Dra en kolumnkant med musen för att ändra bredden
 ?  Hjälp · Esc stäng · q avsluta

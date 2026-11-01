@@ -196,6 +196,7 @@ previews the selected article without marking it read; opening it with `enter`,
 | `t` | Toggle terminal colors (default)/base theme |
 | `I` | Show/hide images in articles (in terminals that can show them) |
 | `o` | Open the link on the cursor line in your browser; with several links, the status bar numbers them and a digit picks one; on a line without links, the article itself. Clicking a link opens it too |
+| `O` | Put a letter on every link visible in the reader; typing a link's letters opens it (Esc cancels) |
 | `<` / `>` | Move the column border next to the focused panel; `=` resets the widths. You can also drag a border with the mouse. Widths are remembered (in `settings.json` next to the database) |
 | `?` | Show/close help |
 | `!` | Show/close the log page (the end of `feedhatch.log`), re-read every second while open; at the end it follows new lines |

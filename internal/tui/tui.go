@@ -111,6 +111,7 @@ type Model struct {
 	pendingReadAll  bool
 	pendingLinks    []lineLink // o on a line with several links: waiting for a digit
 	count           int        // a Vim-style count typed before a motion, e.g. the 5 in 5j
+	hints           *hintState // O: letters on the visible links, waiting for one to be typed
 	updated         time.Time
 	fetchFailed     bool
 	tone            tone
@@ -423,6 +424,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status, m.tone = "", toneInfo
+		if m.hints != nil {
+			m.typeHint(key)
+			return m, nil
+		}
 		if links := m.pendingLinks; links != nil {
 			m.pendingLinks = nil
 			if n, err := strconv.Atoi(key); err == nil && n >= 1 && n <= len(links) {
@@ -534,6 +539,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o":
 			if m.reading || m.threeColumns() {
 				m.openFromLine()
+			}
+		case "O":
+			if m.reading || m.threeColumns() {
+				m.startHints()
 			}
 		case "I":
 			switch {
