@@ -25,11 +25,18 @@ func sizedModel(t *testing.T) Model {
 	if err := st.SeedMock(); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(st, nil, nil)
+	m, err := New(st, nil, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.width, m.height = 100, 28
+	return m
+}
+
+func feedModel(t *testing.T) Model {
+	t.Helper()
+	m := sizedModel(t)
+	m.selectView(feedView, m.feedOrder()[0])
 	return m
 }
 
@@ -63,7 +70,7 @@ func paste(m Model, text string) Model {
 }
 
 func TestNavigationAndReadStatus(t *testing.T) {
-	m := sizedModel(t)
+	m := feedModel(t)
 	before := unreadCount(m.feeds[0])
 	m = press(m, "l")
 	if m.focus != articlesPanel || m.reading {
@@ -85,8 +92,12 @@ func TestNavigationAndReadStatus(t *testing.T) {
 		t.Fatal("feed navigation should stop at the last feed")
 	}
 	m = press(m, "g", "k")
-	if m.feedIndex != 0 {
-		t.Fatal("feed navigation should stop at the first feed")
+	if m.view != unreadView {
+		t.Fatal("sidebar navigation should stop at the first entry")
+	}
+	m = press(m, "j", "j")
+	if m.view != feedView || m.feedIndex != 0 {
+		t.Fatal("the first feed should follow the two virtual entries")
 	}
 }
 
@@ -181,7 +192,7 @@ func TestAddFeedAndValidation(t *testing.T) {
 }
 
 func TestCategoryAndGroupedNavigation(t *testing.T) {
-	m := press(sizedModel(t), "c", "ctrl+u")
+	m := press(feedModel(t), "c", "ctrl+u")
 	m = paste(m, "Design")
 	m = press(m, "enter")
 	if m.feeds[0].category != "Design" {
@@ -305,7 +316,7 @@ func TestViewsFitTerminal(t *testing.T) {
 }
 
 func TestChangeInterval(t *testing.T) {
-	m := press(sizedModel(t), "i")
+	m := press(feedModel(t), "i")
 	if m.form == nil || m.form.values[3] != "15" {
 		t.Fatal("i should open the interval form with the current value")
 	}
@@ -356,7 +367,7 @@ func TestFetchedMsgReloadsAndKeepsSelection(t *testing.T) {
 }
 
 func TestSavedChangesAreAnnounced(t *testing.T) {
-	m := sizedModel(t)
+	m := feedModel(t)
 	var events []event.Event
 	m.announce = func(e event.Event) { events = append(events, e) }
 
@@ -386,7 +397,7 @@ func TestSavedChangesAreAnnounced(t *testing.T) {
 }
 
 func TestDeleteFeedNeedsConfirmation(t *testing.T) {
-	m := sizedModel(t)
+	m := feedModel(t)
 	var events []event.Event
 	m.announce = func(e event.Event) { events = append(events, e) }
 	initial := len(m.feeds)
@@ -420,7 +431,7 @@ func TestDeleteFeedNeedsConfirmation(t *testing.T) {
 }
 
 func TestMarkFeedRead(t *testing.T) {
-	m := sizedModel(t)
+	m := feedModel(t)
 	var events []event.Event
 	m.announce = func(e event.Event) { events = append(events, e) }
 	feed := m.feeds[m.feedIndex]

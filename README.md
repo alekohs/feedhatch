@@ -94,30 +94,43 @@ listens to the daemon's events.
 
 ## Keys
 
+The sidebar starts with two lists across all feeds: **Olästa** (unread
+articles, newest first) and **Alla artiklar**. feedhatch opens on Olästa when
+something is unread. Articles you read there stay listed until you pick another
+sidebar entry or press `r`, so the list doesn't jump while you read.
+
+In terminals at least 140 columns wide the reader gets its own third column and
+previews the selected article without marking it read; opening it with `enter`,
+`l` or `3` marks it read and focuses the reader.
+
 | Key | Action |
 | --- | --- |
 | `h` / `l` | Left/right panel; `l` also opens the selected article |
 | `j` / `k` | Select feed or article; move the line cursor in the reader |
 | `Enter` | Open feed/article |
 | `Tab` | Switch panel |
+| `1` / `2` / `3` | Focus the feed list / the article list / the reader |
+| `]` / `[` | Open the next/previous unread article, continuing into the next feed |
+| `J` / `K` | Next/previous article in the current list, also from the reader |
 | `Esc` / `h` | Cancel selection, then back to the article list |
 | `g` / `G` | First/last item or text line |
 | `d` / `u`, `Ctrl+d` / `Ctrl+u` | Move half a page down/up |
 | `f` / `b`, `Ctrl+f` / `Ctrl+b` | Move a full page down/up |
-| `Space` / `PageDown`, `PageUp` | Move a full page down, or up with `PageUp` |
-| `{` / `}` | Jump to the previous/next paragraph start in the reader |
+| `Space` / `PageDown`, `PageUp` | Move a full page down, or up with `PageUp`; at the end of an article `Space` opens the next unread |
+| `{` / `}` | Previous/next category in the feed list; previous/next paragraph start in the reader |
 | `H` / `M` / `L` | Move to the top/middle/bottom visible text row |
 | `zz` | Center the current text row in the reader (clamped at article edges) |
-| `/` | Enter a text search in the current article; `Enter` searches, `Esc` cancels |
+| `/` | In the article list: filter the list live by title/text (`Enter` keeps the filter, `Esc` clears it); in the reader: search the current article (`Enter` searches, `Esc` cancels). Opening an article from a filtered list searches it for the filter text |
 | `n` / `N` | Jump to the next/previous matching text row, wrapping at the edges |
 | `v` | Start/stop line selection in the reader |
 | `y` | Copy selected lines, or the current line if nothing is selected |
 | `a` | Add feed: URL, optional name, category and update interval (default 15 minutes) |
-| `c` | Move the selected feed to an existing or new category |
+| `c` | Move the selected feed to an existing or new category (not on Olästa/Alla artiklar) |
 | `i` | Change how often the selected feed updates, in minutes |
-| `A` | Mark all articles in the selected feed as read |
+| `A` | Mark all articles in the selected feed as read; on Olästa/Alla artiklar, all feeds after `y` |
 | `D` | Delete the selected feed and its articles; `y` confirms, any other key cancels |
 | `m` | Toggle read/unread for the selected article |
+| `r` | Reload the lists from the database |
 | `t` | Toggle base theme/terminal colors |
 | `?` | Show/close help |
 | `q` / `Ctrl+c` | Quit (`Ctrl+c` also works in forms) |

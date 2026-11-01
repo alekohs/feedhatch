@@ -92,7 +92,7 @@ func runTUI(name string, mock bool, logSize int) {
 		announce = client.Send
 	}
 
-	model, err := tui.New(srv.Store, updates, announce)
+	model, err := tui.New(srv.Store, updates, announce, mock)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

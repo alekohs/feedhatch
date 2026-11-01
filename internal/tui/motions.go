@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 func (m *Model) centerLine() {
 	_, _, height := m.dimensions()
@@ -34,8 +37,7 @@ func (m *Model) moveParagraph(direction int) {
 	if !m.reading {
 		return
 	}
-	_, right, _ := m.dimensions()
-	lines := m.readerLines(right - 6)
+	lines := m.readerLines(m.readerWidth())
 	blank := func(i int) bool { return strings.TrimSpace(lines[i]) == "" }
 	target := m.line
 	if direction > 0 {
@@ -60,12 +62,33 @@ func (m *Model) moveParagraph(direction int) {
 	m.ensureLineVisible()
 }
 
+// moveCategory jumps to the first entry of the previous or next sidebar group.
+// The two virtual entries count as the first group.
+func (m *Model) moveCategory(direction int) {
+	categories := m.categories()
+	group := 0
+	if m.view == feedView && len(m.feeds) > 0 {
+		group = 1 + slices.Index(categories, m.feeds[m.feedIndex].category)
+	}
+	group = clamp(group+direction, 1+len(categories))
+	if group == 0 {
+		m.selectView(unreadView, m.feedIndex)
+		return
+	}
+	for _, index := range m.feedOrder() {
+		if m.feeds[index].category == categories[group-1] {
+			m.selectView(feedView, index)
+			return
+		}
+	}
+}
+
 func (m *Model) moveWithinScreen(key string) {
 	if !m.reading {
 		return
 	}
-	_, right, height := m.dimensions()
-	lines := m.readerLines(right - 6)
+	_, _, height := m.dimensions()
+	lines := m.readerLines(m.readerWidth())
 	first := m.scroll
 	last := min(len(lines)-1, first+max(1, height-4)-1)
 	switch key {

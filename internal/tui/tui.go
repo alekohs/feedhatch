@@ -18,6 +18,7 @@ import (
 type article struct {
 	id                int64
 	title, date, body string
+	published         time.Time
 	unread            bool
 }
 
@@ -34,6 +35,25 @@ const (
 	articlesPanel
 )
 
+type listView int
+
+const (
+	feedView listView = iota
+	unreadView
+	allView
+)
+
+type ref struct{ feed, article int } // indices into m.feeds and its articles
+
+type tone int
+
+const (
+	toneInfo tone = iota
+	toneOK
+	toneWarn
+	toneErr
+)
+
 type form struct {
 	single bool // edit only values[field] of the selected feed
 	field  int
@@ -42,27 +62,36 @@ type form struct {
 }
 
 type Model struct {
-	store         *store.Store
-	updates       <-chan FetchedMsg
-	announce      func(event.Event)
-	width, height int
-	feeds         []subscription
-	feedIndex     int
-	articleIndex  int
-	focus         panel
-	reading       bool
-	scroll        int
-	line          int
-	visual        bool
-	anchor        int
-	pendingZ      bool
-	pendingDelete bool
-	status        string
-	help          bool
-	helpScroll    int
-	terminalTheme bool
-	form          *form
-	search        searchState
+	store          *store.Store
+	updates        <-chan FetchedMsg
+	announce       func(event.Event)
+	width, height  int
+	feeds          []subscription
+	feedIndex      int
+	articleIndex   int
+	focus          panel
+	reading        bool
+	scroll         int
+	line           int
+	visual         bool
+	anchor         int
+	pendingZ       bool
+	pendingDelete  bool
+	status         string
+	help           bool
+	helpScroll     int
+	terminalTheme  bool
+	form           *form
+	search         searchState
+	filter         string
+	filtering      bool
+	mock           bool
+	view           listView
+	keep           map[int64]bool
+	pendingReadAll bool
+	updated        time.Time
+	fetchFailed    bool
+	tone           tone
 }
 
 // FetchedMsg tells the TUI that the worker finished a round and the store may have new articles.
@@ -70,13 +99,55 @@ type FetchedMsg struct{ Err error }
 
 // New loads the feeds from st. Each FetchedMsg on updates reloads them, and announce
 // is called after every change the TUI saves, so other listeners hear about it.
-// Both may be nil.
-func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event)) (Model, error) {
-	m := Model{store: st, updates: updates, announce: announce}
+// mock marks the session as sample data. Both updates and announce may be nil.
+func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event), mock bool) (Model, error) {
+	m := Model{store: st, updates: updates, announce: announce, mock: mock}
 	if err := m.load(); err != nil {
 		return Model{}, err
 	}
+	if m.totalUnread() > 0 {
+		m.selectView(unreadView, 0)
+	} else if order := m.feedOrder(); len(order) > 0 {
+		m.selectView(feedView, order[0])
+	}
 	return m, nil
+}
+
+// selectView switches the sidebar entry. keep only survives while the entry stays the same,
+// so articles read in "Olästa" don't vanish until the user moves on.
+func (m *Model) selectView(v listView, feedIndex int) {
+	changed := v != m.view || (v == feedView && feedIndex != m.feedIndex)
+	m.view = v
+	if v == feedView {
+		m.feedIndex = feedIndex
+	}
+	m.articleIndex, m.scroll, m.reading, m.visual = 0, 0, false, false
+	if changed {
+		m.keep = nil
+		m.filter, m.filtering = "", false
+		if v == unreadView {
+			m.fillKeep()
+		}
+	}
+}
+
+func (m *Model) fillKeep() {
+	m.keep = make(map[int64]bool)
+	for _, feed := range m.feeds {
+		for _, a := range feed.articles {
+			if a.unread {
+				m.keep[a.id] = true
+			}
+		}
+	}
+}
+
+func (m Model) totalUnread() int {
+	n := 0
+	for _, feed := range m.feeds {
+		n += unreadCount(feed)
+	}
+	return n
 }
 
 func (m *Model) load() error {
@@ -94,7 +165,7 @@ func (m *Model) load() error {
 		sub := subscription{id: f.ID, interval: f.Interval, name: f.Name, url: f.URL, category: f.Category}
 		for _, a := range articles {
 			sub.articles = append(sub.articles, article{
-				id: a.ID, title: a.Title, date: formatDate(a.PublishedAt), body: a.Content, unread: !a.Read,
+				id: a.ID, title: a.Title, date: formatDate(a.PublishedAt), body: a.Content, published: a.PublishedAt, unread: !a.Read,
 			})
 		}
 		m.feeds = append(m.feeds, sub)
@@ -103,7 +174,8 @@ func (m *Model) load() error {
 }
 
 // reload keeps the selected feed and article, since new articles shift their positions.
-func (m *Model) reload() error {
+// With refill, the Olästa list is rebuilt before the cursor is placed.
+func (m *Model) reload(refill bool) error {
 	var feedID, articleID int64
 	if len(m.feeds) > 0 {
 		feedID = m.feeds[m.feedIndex].id
@@ -114,19 +186,35 @@ func (m *Model) reload() error {
 	if err := m.load(); err != nil {
 		return err
 	}
+	if refill && m.view == unreadView {
+		m.fillKeep()
+	}
 
-	m.feedIndex, m.articleIndex = clamp(m.feedIndex, len(m.feeds)), 0
+	feedGone := feedID != 0
+	m.feedIndex = clamp(m.feedIndex, len(m.feeds))
 	for i, f := range m.feeds {
 		if f.id == feedID {
-			m.feedIndex = i
+			m.feedIndex, feedGone = i, false
 		}
 	}
-	if len(m.feeds) > 0 {
-		for i, a := range m.feeds[m.feedIndex].articles {
-			if a.id == articleID {
-				m.articleIndex = i
-			}
+	refs := m.articleRefs()
+	m.articleIndex = clamp(m.articleIndex, len(refs))
+	articleGone := articleID != 0
+	for i, r := range refs {
+		if m.feeds[r.feed].articles[r.article].id == articleID {
+			m.articleIndex, articleGone = i, false
 		}
+	}
+	if articleGone {
+		m.reading, m.visual = false, false
+	}
+	if feedGone && m.view == feedView {
+		if m.form != nil && m.form.single {
+			m.form = nil
+		}
+		m.pendingDelete = false
+		m.reading, m.visual = false, false
+		m.status, m.tone = "Flödet togs bort av en annan klient.", toneWarn
 	}
 	return nil
 }
@@ -167,10 +255,11 @@ func (m Model) waitForUpdate() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case FetchedMsg:
-		if err := m.reload(); err != nil {
-			m.status = "Kunde inte läsa in flödena: " + err.Error()
-		} else if msg.Err != nil {
-			m.status = "Uppdatering misslyckades: " + strings.ReplaceAll(msg.Err.Error(), "\n", "; ")
+		m.updated, m.fetchFailed = time.Now(), msg.Err != nil
+		if err := m.reload(false); err != nil {
+			m.status, m.tone = "Kunde inte läsa in flödena: "+err.Error(), toneErr
+		} else if msg.Err != nil && !m.pendingDelete && !m.pendingReadAll {
+			m.status, m.tone = "Uppdatering misslyckades: "+strings.ReplaceAll(msg.Err.Error(), "\n", "; "), toneErr
 		}
 		m.ensureLineVisible()
 		return m, m.waitForUpdate()
@@ -183,6 +272,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.form != nil {
 			m.appendInput(msg.Content)
+		} else if m.filtering {
+			m.setFilter(m.filter + printable(msg.Content))
 		} else if m.search.active {
 			m.appendSearchInput(msg.Content)
 		}
@@ -193,6 +284,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.form != nil {
 			m.updateForm(msg)
+			return m, nil
+		}
+		if m.filtering {
+			m.updateFilter(msg)
 			return m, nil
 		}
 		if m.search.active {
@@ -223,13 +318,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.helpScroll = clamp(m.helpScroll, m.maxHelpScroll()+1)
 			return m, nil
 		}
-		m.status = ""
+		m.status, m.tone = "", toneInfo
 		if m.pendingDelete {
 			m.pendingDelete = false
 			if key == "y" {
 				m.deleteFeed()
 			} else {
 				m.status = "Borttagningen avbröts."
+			}
+			return m, nil
+		}
+		if m.pendingReadAll {
+			m.pendingReadAll = false
+			if key == "y" {
+				m.markAllRead()
+			} else {
+				m.status = "Avbröts."
 			}
 			return m, nil
 		}
@@ -243,6 +347,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if key == "space" || key == " " {
+			if m.reading && m.line >= len(m.readerLines(m.readerWidth()))-1 {
+				m.openUnread(1)
+				return m, nil
+			}
+		}
 		if delta, ok := m.pageMotion(key); ok {
 			m.move(delta)
 			return m, nil
@@ -250,9 +360,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "q":
 			return m, tea.Quit
+		case "]":
+			m.openUnread(1)
+		case "[":
+			m.openUnread(-1)
+		case "J":
+			m.stepArticle(1)
+		case "K":
+			m.stepArticle(-1)
+		case "1":
+			m.focus = feedsPanel
+			m.reading, m.scroll, m.visual = false, 0, false
+		case "2":
+			m.focus = articlesPanel
+			if m.wide() {
+				m.reading, m.scroll, m.visual = false, 0, false
+			}
+		case "3":
+			m.focus = articlesPanel
+			if !m.reading {
+				m.openArticle()
+			}
+		case "r":
+			if err := m.reload(true); err != nil {
+				m.status, m.tone = "Kunde inte läsa in flödena: "+err.Error(), toneErr
+				break
+			}
+			m.updated = time.Now()
+			m.status, m.tone = "Uppdaterad.", toneOK
 		case "/":
 			if m.reading {
 				m.search.active, m.search.input = true, ""
+			} else {
+				m.focus, m.filtering = articlesPanel, true
 			}
 		case "n", "N":
 			if m.reading {
@@ -270,31 +410,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			m.form = &form{}
 			m.form.values[2], m.form.values[3] = "Övrigt", "15"
-			if len(m.feeds) > 0 {
+			if len(m.feeds) > 0 && m.view == feedView {
 				m.form.values[2] = m.feeds[m.feedIndex].category
 			}
 		case "c":
-			if len(m.feeds) > 0 {
+			if m.requireFeed() && len(m.feeds) > 0 {
 				m.form = &form{single: true, field: 2}
 				m.form.values[2] = m.feeds[m.feedIndex].category
 			}
 		case "A":
-			if len(m.feeds) > 0 {
+			if m.view != feedView {
+				if n := m.totalUnread(); n == 0 {
+					m.status = "Inga olästa artiklar."
+				} else {
+					m.pendingReadAll = true
+					m.status, m.tone = fmt.Sprintf("Markera alla %d olästa artiklar som lästa? y bekräftar, annan tangent avbryter.", n), toneWarn
+				}
+			} else if len(m.feeds) > 0 {
 				m.markFeedRead()
 			}
 		case "D":
-			if len(m.feeds) > 0 {
+			if m.requireFeed() && len(m.feeds) > 0 {
 				m.pendingDelete = true
-				m.status = fmt.Sprintf("Ta bort %s och alla dess artiklar? y tar bort, annan tangent avbryter.", m.feeds[m.feedIndex].name)
+				m.status, m.tone = fmt.Sprintf("Ta bort %s och alla dess artiklar? y tar bort, annan tangent avbryter.", m.feeds[m.feedIndex].name), toneWarn
 			}
 		case "i":
-			if len(m.feeds) > 0 {
+			if m.requireFeed() && len(m.feeds) > 0 {
 				m.form = &form{single: true, field: 3}
 				m.form.values[3] = strconv.FormatInt(m.feeds[m.feedIndex].interval, 10)
 			}
 		case "h", "left", "esc":
 			if m.visual {
 				m.visual = false
+			} else if key == "esc" && m.filter != "" && !m.reading && m.focus == articlesPanel {
+				m.setFilter("")
 			} else if m.reading {
 				m.reading, m.scroll = false, 0
 			} else {
@@ -322,15 +471,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "G", "end":
 			m.move(1 << 20)
 		case "{":
-			m.moveParagraph(-1)
+			if m.focus == feedsPanel && !m.reading {
+				m.moveCategory(-1)
+			} else {
+				m.moveParagraph(-1)
+			}
 		case "}":
-			m.moveParagraph(1)
+			if m.focus == feedsPanel && !m.reading {
+				m.moveCategory(1)
+			} else {
+				m.moveParagraph(1)
+			}
 		case "H", "M", "L":
 			m.moveWithinScreen(key)
 		case "m":
 			if a := m.currentArticle(); a != nil {
-				a.unread = !a.unread
-				m.saveRead(a)
+				m.setUnread(a, !a.unread)
 			}
 		case "v":
 			if m.reading {
@@ -349,24 +505,139 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) articleRefs() []ref {
+	var refs []ref
+	switch m.view {
+	case feedView:
+		if len(m.feeds) > 0 {
+			for i := range m.feeds[m.feedIndex].articles {
+				refs = append(refs, ref{m.feedIndex, i})
+			}
+		}
+	case unreadView:
+		for f, feed := range m.feeds {
+			for i, a := range feed.articles {
+				if a.unread || m.keep[a.id] {
+					refs = append(refs, ref{f, i})
+				}
+			}
+		}
+	case allView:
+		for f, feed := range m.feeds {
+			for i := range feed.articles {
+				refs = append(refs, ref{f, i})
+			}
+		}
+	}
+	if m.filter != "" {
+		pattern := searchPattern(m.filter)
+		refs = slices.DeleteFunc(refs, func(r ref) bool {
+			a := m.feeds[r.feed].articles[r.article]
+			return !pattern.MatchString(a.title) && !pattern.MatchString(a.body)
+		})
+	}
+	if m.view != feedView {
+		slices.SortStableFunc(refs, func(a, b ref) int {
+			return m.feeds[b.feed].articles[b.article].published.Compare(m.feeds[a.feed].articles[a.article].published)
+		})
+	}
+	return refs
+}
+
 func (m *Model) currentArticle() *article {
-	if len(m.feeds) == 0 || len(m.feeds[m.feedIndex].articles) == 0 {
+	refs := m.articleRefs()
+	if m.articleIndex < 0 || m.articleIndex >= len(refs) {
 		return nil
 	}
-	return &m.feeds[m.feedIndex].articles[m.articleIndex]
+	r := refs[m.articleIndex]
+	return &m.feeds[r.feed].articles[r.article]
+}
+
+func (m *Model) currentFeed() *subscription {
+	refs := m.articleRefs()
+	if m.articleIndex >= 0 && m.articleIndex < len(refs) {
+		return &m.feeds[refs[m.articleIndex].feed]
+	}
+	if len(m.feeds) == 0 {
+		return nil
+	}
+	return &m.feeds[m.feedIndex]
 }
 
 func (m *Model) openArticle() {
 	if a := m.currentArticle(); a != nil {
 		if a.unread {
-			a.unread = false
-			m.saveRead(a)
+			m.setUnread(a, false)
 		}
 		m.reading, m.scroll, m.line, m.visual = true, 0, 0, false
+		if m.filter != "" {
+			m.search.query = m.filter
+		}
 	}
 }
 
+// openUnread opens the next (dir 1) or previous (dir -1) unread article, continuing into
+// the neighbouring feeds in sidebar order when a feed is selected.
+func (m *Model) openUnread(dir int) {
+	seq, pos := m.articleRefs(), m.articleIndex
+	if m.view == feedView {
+		seq, pos = nil, 0
+		for _, f := range m.feedOrder() {
+			if f == m.feedIndex {
+				pos = len(seq) + m.articleIndex
+				if dir > 0 && len(m.articleRefs()) == 0 {
+					pos--
+				}
+				seq = append(seq, m.articleRefs()...)
+				continue
+			}
+			for i := range m.feeds[f].articles {
+				seq = append(seq, ref{f, i})
+			}
+		}
+	}
+	for i := pos + dir; i >= 0 && i < len(seq); i += dir {
+		r := seq[i]
+		if !m.feeds[r.feed].articles[r.article].unread {
+			continue
+		}
+		if m.view == feedView {
+			if r.feed != m.feedIndex {
+				m.status, m.tone = "Nästa oläst i "+m.feeds[r.feed].name+".", toneInfo
+			}
+			if r.feed != m.feedIndex {
+				m.feedIndex, m.filter = r.feed, ""
+			}
+			m.articleIndex = slices.Index(m.articleRefs(), r)
+		} else {
+			m.articleIndex = i
+		}
+		m.focus = articlesPanel
+		m.openArticle()
+		return
+	}
+	m.status, m.tone = "Inga fler olästa artiklar.", toneInfo
+}
+
+func (m *Model) stepArticle(delta int) {
+	m.articleIndex = clamp(m.articleIndex+delta, len(m.articleRefs()))
+	if m.reading {
+		m.openArticle()
+	}
+}
+
+func (m *Model) requireFeed() bool {
+	if m.view != feedView {
+		m.status, m.tone = "Välj ett riktigt flöde.", toneWarn
+		return false
+	}
+	return true
+}
+
 func (m *Model) markFeedRead() {
+	if len(m.feeds) == 0 {
+		return
+	}
 	feed := &m.feeds[m.feedIndex]
 	n := unreadCount(*feed)
 	if n == 0 {
@@ -374,35 +645,90 @@ func (m *Model) markFeedRead() {
 		return
 	}
 	if err := m.store.SetFeedRead(feed.id, true); err != nil {
-		m.status = "Kunde inte markera flödet som läst: " + err.Error()
+		m.status, m.tone = "Kunde inte markera flödet som läst: "+err.Error(), toneErr
 		return
 	}
 	for i := range feed.articles {
 		feed.articles[i].unread = false
 	}
-	m.status = fmt.Sprintf("Markerade %d artiklar i %s som lästa.", n, feed.name)
+	m.status, m.tone = fmt.Sprintf("Markerade %d artiklar i %s som lästa.", n, feed.name), toneOK
 	m.publish(event.Event{Type: event.FeedRead, Feed: feed.name})
 }
 
-func (m *Model) deleteFeed() {
-	feed := m.feeds[m.feedIndex]
-	if err := m.store.DeleteFeed(feed.id); err != nil {
-		m.status = "Kunde inte ta bort flödet: " + err.Error()
+func (m *Model) markAllRead() {
+	n := 0
+	for i := range m.feeds {
+		feed := &m.feeds[i]
+		count := unreadCount(*feed)
+		if count == 0 {
+			continue
+		}
+		if err := m.store.SetFeedRead(feed.id, true); err != nil {
+			m.status, m.tone = "Kunde inte markera flödet som läst: "+err.Error(), toneErr
+			return
+		}
+		for j := range feed.articles {
+			if feed.articles[j].unread && m.view == unreadView {
+				m.keep[feed.articles[j].id] = true
+			}
+			feed.articles[j].unread = false
+		}
+		n += count
+		m.publish(event.Event{Type: event.FeedRead, Feed: feed.name})
+	}
+	if n == 0 {
+		m.status = "Inga olästa artiklar."
 		return
 	}
+	m.status, m.tone = fmt.Sprintf("Markerade %d artiklar som lästa.", n), toneOK
+}
+
+func (m *Model) deleteFeed() {
+	if len(m.feeds) == 0 {
+		return
+	}
+	feed := m.feeds[m.feedIndex]
+	if err := m.store.DeleteFeed(feed.id); err != nil {
+		m.status, m.tone = "Kunde inte ta bort flödet: "+err.Error(), toneErr
+		return
+	}
+	order := m.feedOrder()
+	position := slices.Index(order, m.feedIndex)
+	next := 0
+	if position+1 < len(order) {
+		next = order[position+1]
+	} else if position > 0 {
+		next = order[position-1]
+	}
+	if next > m.feedIndex {
+		next--
+	}
 	m.feeds = slices.Delete(m.feeds, m.feedIndex, m.feedIndex+1)
-	m.feedIndex, m.articleIndex = clamp(m.feedIndex, len(m.feeds)), 0
-	m.focus, m.reading, m.scroll, m.visual = feedsPanel, false, 0, false
-	m.status = "Tog bort " + feed.name + "."
+	m.selectView(feedView, next)
+	m.focus = feedsPanel
+	m.status, m.tone = "Tog bort "+feed.name+".", toneOK
 	m.publish(event.Event{Type: event.FeedDeleted, Feed: feed.name})
 }
 
-func (m *Model) saveRead(a *article) {
+// setUnread changes the current article. In Olästa it is kept listed, so the cursor stays on it.
+func (m *Model) setUnread(a *article, unread bool) {
+	feed := m.currentFeed().name
+	if m.view == unreadView {
+		if m.keep == nil {
+			m.keep = make(map[int64]bool)
+		}
+		m.keep[a.id] = true
+	}
+	a.unread = unread
+	m.saveRead(a, feed)
+}
+
+func (m *Model) saveRead(a *article, feed string) {
 	if err := m.store.SetRead(a.id, !a.unread); err != nil {
-		m.status = "Kunde inte spara läsläget: " + err.Error()
+		m.status, m.tone = "Kunde inte spara läsläget: "+err.Error(), toneErr
 		return
 	}
-	e := event.Event{Type: event.Read, Feed: m.feeds[m.feedIndex].name, ArticleID: a.id, Article: a.title}
+	e := event.Event{Type: event.Read, Feed: feed, ArticleID: a.id, Article: a.title}
 	if a.unread {
 		e.Type = event.Unread
 	}
@@ -418,19 +744,31 @@ func (m *Model) publish(e event.Event) {
 func (m *Model) move(delta int) {
 	if m.focus == feedsPanel {
 		order := m.feedOrder()
-		for i, index := range order {
-			if index == m.feedIndex {
-				m.feedIndex = order[clamp(i+delta, len(order))]
-				m.articleIndex, m.scroll = 0, 0
-				return
-			}
+		position := 0
+		switch m.view {
+		case allView:
+			position = 1
+		case feedView:
+			position = 2 + slices.Index(order, m.feedIndex)
+		}
+		target := clamp(position+delta, 2+len(order))
+		if target == position {
+			return
+		}
+		position = target
+		switch position {
+		case 0:
+			m.selectView(unreadView, m.feedIndex)
+		case 1:
+			m.selectView(allView, m.feedIndex)
+		default:
+			m.selectView(feedView, order[position-2])
 		}
 	} else if m.reading {
-		_, right, _ := m.dimensions()
-		m.line = clamp(m.line+delta, len(m.readerLines(right-6)))
+		m.line = clamp(m.line+delta, len(m.readerLines(m.readerWidth())))
 		m.ensureLineVisible()
-	} else if len(m.feeds) > 0 {
-		m.articleIndex = clamp(m.articleIndex+delta, len(m.feeds[m.feedIndex].articles))
+	} else {
+		m.articleIndex = clamp(m.articleIndex+delta, len(m.articleRefs()))
 	}
 }
 
@@ -520,6 +858,10 @@ func (m *Model) updateForm(msg tea.KeyPressMsg) {
 
 func (m *Model) saveForm() {
 	f := m.form
+	if f.single && len(m.feeds) == 0 {
+		m.form = nil
+		return
+	}
 	category := strings.TrimSpace(f.values[2])
 	if category == "" {
 		category = "Övrigt"
@@ -567,15 +909,15 @@ func (m *Model) saveForm() {
 			return
 		}
 		m.feeds = append(m.feeds, subscription{id: id, interval: interval, name: name, url: address, category: category})
-		m.feedIndex, m.articleIndex = len(m.feeds)-1, 0
+		m.selectView(feedView, len(m.feeds)-1)
 		m.publish(event.Event{Type: event.FeedAdded, Feed: name, Category: category, Interval: interval})
 	}
 	m.form, m.focus, m.reading, m.scroll, m.visual = nil, feedsPanel, false, 0, false
 }
 
 func (m *Model) ensureLineVisible() {
-	_, right, height := m.dimensions()
-	m.line = clamp(m.line, len(m.readerLines(right-6)))
+	_, _, height := m.dimensions()
+	m.line = clamp(m.line, len(m.readerLines(m.readerWidth())))
 	visible := max(1, height-4)
 	if m.line < m.scroll {
 		m.scroll = m.line
@@ -587,8 +929,7 @@ func (m *Model) ensureLineVisible() {
 }
 
 func (m Model) selectedText() (string, int) {
-	_, right, _ := m.dimensions()
-	lines := m.readerLines(right - 6)
+	lines := m.readerLines(m.readerWidth())
 	start, end := m.selectionRange()
 	start, end = clamp(start, len(lines)), clamp(end, len(lines))
 	return strings.Join(lines[start:end+1], "\n"), end - start + 1
@@ -614,4 +955,48 @@ func (m Model) summary() string {
 		n += unreadCount(feed)
 	}
 	return fmt.Sprintf("%d flöden · %d olästa", len(m.feeds), n)
+}
+
+func printable(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, text)
+}
+
+// setFilter keeps the cursor on the same article when it is still listed, else moves to the first.
+func (m *Model) setFilter(query string) {
+	var id int64
+	if a := m.currentArticle(); a != nil {
+		id = a.id
+	}
+	runes := []rune(query)
+	m.filter = string(runes[:min(len(runes), 2048)])
+	m.articleIndex = 0
+	for i, r := range m.articleRefs() {
+		if m.feeds[r.feed].articles[r.article].id == id {
+			m.articleIndex = i
+		}
+	}
+}
+
+func (m *Model) updateFilter(msg tea.KeyPressMsg) {
+	switch msg.String() {
+	case "esc":
+		m.setFilter("")
+		m.filtering = false
+	case "enter":
+		m.filtering = false
+	case "backspace":
+		runes := []rune(m.filter)
+		if len(runes) > 0 {
+			m.setFilter(string(runes[:len(runes)-1]))
+		}
+	case "ctrl+u":
+		m.setFilter("")
+	default:
+		m.setFilter(m.filter + printable(msg.Text))
+	}
 }

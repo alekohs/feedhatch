@@ -33,11 +33,11 @@ func TestSearchAndRepeatWrap(t *testing.T) {
 			t.Fatalf("n moved to %d, want %d", m.line, want)
 		}
 	}
-	if !strings.Contains(m.status, "wrapped") {
+	if !strings.Contains(m.status, "börjar om") {
 		t.Fatal("search should report wrapping back to the beginning")
 	}
 	m = press(m, "N")
-	if m.line != 7 || !strings.Contains(m.status, "wrapped") {
+	if m.line != 7 || !strings.Contains(m.status, "börjar om") {
 		t.Fatal("N should wrap backwards to the last matching row")
 	}
 	m = press(m, "N")
@@ -59,11 +59,11 @@ func TestSearchLiteralAndUnicode(t *testing.T) {
 
 func TestSearchMissingQueryAndNoMatch(t *testing.T) {
 	m := press(searchReader(t), "n")
-	if !strings.Contains(m.status, "No previous search") || m.line != 0 {
+	if !strings.Contains(m.status, "Ingen tidigare sökning") || m.line != 0 {
 		t.Fatal("n without a query should explain how to start searching")
 	}
 	m = searchFor(m, "not present")
-	if !strings.Contains(m.status, "No matches") || m.line != 0 {
+	if !strings.Contains(m.status, "Inga träffar") || m.line != 0 {
 		t.Fatal("a failed search should report no matches and preserve the cursor")
 	}
 	m = press(m, "N")
@@ -144,10 +144,10 @@ func TestSearchRecomputesMatchesAfterResize(t *testing.T) {
 
 func TestSearchIsScopedToReader(t *testing.T) {
 	m := press(sizedModel(t), "/", "n", "N")
-	if m.search.active || m.feedIndex != 0 {
-		t.Fatal("reader search should not intercept feed navigation")
+	if m.search.active || m.feedIndex != 0 || !m.filtering || m.filter != "nN" {
+		t.Fatal("outside the reader / filters the list instead of searching")
 	}
-	m = press(m, "a", "enter", "/", "n", "N")
+	m = press(m, "esc", "a", "enter", "/", "n", "N")
 	if m.form.values[1] != "/nN" || m.search.active {
 		t.Fatal("search shortcuts should remain ordinary text in forms")
 	}

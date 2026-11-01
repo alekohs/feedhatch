@@ -10,7 +10,7 @@ import (
 
 func motionReader(t *testing.T) Model {
 	t.Helper()
-	m := sizedModel(t)
+	m := feedModel(t)
 	m.width, m.height = 80, 18
 	var body []string
 	for i := range 80 {
@@ -173,7 +173,7 @@ func TestDocumentStartAndEndMotions(t *testing.T) {
 		t.Fatal("G should select the last feed")
 	}
 	m = press(m, "g", "l", "G")
-	if m.articleIndex != len(m.feeds[m.feedIndex].articles)-1 {
+	if m.articleIndex != len(m.articleRefs())-1 {
 		t.Fatal("G should select the last article in list view")
 	}
 	m = press(m, "g")

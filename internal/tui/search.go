@@ -68,9 +68,8 @@ func (m Model) matchingRows() []int {
 	if pattern == nil {
 		return nil
 	}
-	_, right, _ := m.dimensions()
 	var matches []int
-	for i, line := range m.readerLines(right - 6) {
+	for i, line := range m.readerLines(m.readerWidth()) {
 		if pattern.MatchString(line) {
 			matches = append(matches, i)
 		}
@@ -80,12 +79,12 @@ func (m Model) matchingRows() []int {
 
 func (m *Model) findSearchMatch(direction int, includeCurrent bool) {
 	if m.search.query == "" {
-		m.status = "No previous search. Press / to search this article."
+		m.status = "Ingen tidigare sökning. Tryck / för att söka i artikeln."
 		return
 	}
 	matches := m.matchingRows()
 	if len(matches) == 0 {
-		m.status = fmt.Sprintf("No matches for %q.", m.search.query)
+		m.status = fmt.Sprintf("Inga träffar för %q.", m.search.query)
 		return
 	}
 	index, wrapped := 0, false
@@ -111,9 +110,9 @@ func (m *Model) findSearchMatch(direction int, includeCurrent bool) {
 	}
 	m.line = matches[index]
 	m.ensureLineVisible()
-	m.status = fmt.Sprintf("/%s · matching row %d/%d · n next · N previous", m.search.query, index+1, len(matches))
+	m.status = fmt.Sprintf("/%s · träff på rad %d/%d · n nästa · N föregående", m.search.query, index+1, len(matches))
 	if wrapped {
-		m.status += " · wrapped"
+		m.status += " · börjar om"
 	}
 }
 
