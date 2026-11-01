@@ -17,6 +17,7 @@ import (
 	"charm.land/log/v2"
 	"gopkg.in/natefinch/lumberjack.v2"
 
+	"alekohs/feedhatch/internal/constants"
 	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/server"
 	"alekohs/feedhatch/internal/store"
@@ -52,11 +53,12 @@ func main() {
 
 func runTUI(name string, mock bool, logSize int) {
 	// Log lines would draw over the TUI, so they go to a file; errors also reach the status bar.
-	logFile, err := openLogFile(name, logSize)
+	logPath, err := logFilePath(name)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	logFile := &lumberjack.Logger{Filename: logPath, MaxSize: logSize, MaxBackups: 1}
 	defer logFile.Close()
 	logger := newLogger(logFile, time.DateTime)
 
@@ -92,7 +94,7 @@ func runTUI(name string, mock bool, logSize int) {
 		announce = client.Send
 	}
 
-	model, err := tui.New(srv.Store, updates, announce, mock)
+	model, err := tui.New(srv.Store, updates, announce, mock, logPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -159,11 +161,11 @@ func (h componentHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return componentHandler{l}
 }
 
-// openLogFile returns the TUI's log file, rotated at maxSize MB with one old file kept.
-func openLogFile(name string, maxSize int) (io.WriteCloser, error) {
+// logFilePath is the TUI's log file, rotated at -log-size MB with one old file kept.
+func logFilePath(name string) (string, error) {
 	dir, err := store.Dir(name)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return &lumberjack.Logger{Filename: filepath.Join(dir, "feedhatch.log"), MaxSize: maxSize, MaxBackups: 1}, nil
+	return filepath.Join(dir, constants.Logfile), nil
 }

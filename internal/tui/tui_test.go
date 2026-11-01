@@ -25,7 +25,7 @@ func sizedModel(t *testing.T) Model {
 	if err := st.SeedMock(); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(st, nil, nil, false)
+	m, err := New(st, nil, nil, false, filepath.Join(t.TempDir(), "feedhatch.log"))
 	if err != nil {
 		t.Fatal(err)
 	}

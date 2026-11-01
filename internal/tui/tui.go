@@ -80,6 +80,11 @@ type Model struct {
 	status         string
 	help           bool
 	helpScroll     int
+	logOpen        bool
+	logPath        string
+	logLines       []string
+	logScroll      int
+	logGen         int
 	terminalTheme  bool
 	form           *form
 	search         searchState
@@ -100,8 +105,8 @@ type FetchedMsg struct{ Err error }
 // New loads the feeds from st. Each FetchedMsg on updates reloads them, and announce
 // is called after every change the TUI saves, so other listeners hear about it.
 // mock marks the session as sample data. Both updates and announce may be nil.
-func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event), mock bool) (Model, error) {
-	m := Model{store: st, updates: updates, announce: announce, mock: mock}
+func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event), mock bool, logPath string) (Model, error) {
+	m := Model{store: st, updates: updates, announce: announce, mock: mock, logPath: logPath}
 	if err := m.load(); err != nil {
 		return Model{}, err
 	}
@@ -263,6 +268,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ensureLineVisible()
 		return m, m.waitForUpdate()
+	case logTickMsg:
+		if !m.logOpen || int(msg) != m.logGen {
+			return m, nil
+		}
+		m.loadLog()
+		return m, m.logTick()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Wrapped row numbers change on resize; do not silently copy a new range.
@@ -292,6 +303,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.search.active {
 			m.updateSearch(msg)
+			return m, nil
+		}
+		if m.logOpen {
+			if delta, ok := m.pageMotion(key); ok {
+				m.logScroll = clamp(m.logScroll+delta, m.maxLogScroll()+1)
+				return m, nil
+			}
+			switch key {
+			case "q":
+				return m, tea.Quit
+			case "!", "esc", "h":
+				m.logOpen = false
+			case "r":
+				m.loadLog()
+			case "t":
+				m.terminalTheme = !m.terminalTheme
+			case "j", "down":
+				m.logScroll++
+			case "k", "up":
+				m.logScroll--
+			case "g", "home":
+				m.logScroll = 0
+			case "G", "end":
+				m.logScroll = 1 << 20
+			}
+			m.logScroll = clamp(m.logScroll, m.maxLogScroll()+1)
 			return m, nil
 		}
 		if m.help {
@@ -405,6 +442,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			m.help = true
 			m.helpScroll = 0
+		case "!":
+			m.logOpen, m.logScroll = true, 1<<20
+			m.logGen++
+			m.loadLog()
+			return m, m.logTick()
 		case "t":
 			m.terminalTheme = !m.terminalTheme
 		case "a":

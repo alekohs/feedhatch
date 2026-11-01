@@ -39,6 +39,8 @@ tail -F ~/.cache/feedhatch/feedhatch.log
 make dev-logs   # the same for -dev
 ```
 
+Inside the TUI, `!` shows the same file.
+
 ## Running as a service
 
 `make install-service` builds feedhatch into `~/.local/bin`, installs
@@ -133,6 +135,7 @@ previews the selected article without marking it read; opening it with `enter`,
 | `r` | Reload the lists from the database |
 | `t` | Toggle base theme/terminal colors |
 | `?` | Show/close help |
+| `!` | Show/close the log page (the end of `feedhatch.log`), re-read every second while open; at the end it follows new lines |
 | `q` / `Ctrl+c` | Quit (`Ctrl+c` also works in forms) |
 
 In forms, `Tab` switches field, `Enter` moves on/saves, `Ctrl+u` clears the

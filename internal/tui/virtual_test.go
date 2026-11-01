@@ -34,7 +34,7 @@ func TestStartupSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	m, err := New(m.store, nil, nil, false)
+	m, err := New(m.store, nil, nil, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

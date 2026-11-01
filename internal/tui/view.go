@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -24,10 +25,10 @@ func (m Model) View() tea.View {
 	header := bar(p.normal().Bold(true).Render("feedhatch"), m.headerMeta(), m.width)
 
 	left := m.renderPanel("1 Flöden", m.sidebar(leftWidth-4, panelHeight-4), leftWidth, panelHeight,
-		m.focus == feedsPanel && m.form == nil && !m.help)
+		m.focus == feedsPanel && m.form == nil && !m.help && !m.logOpen)
 	title := m.listTitle()
 	var right, preview string
-	wide := m.wide() && m.form == nil && !m.help
+	wide := m.wide() && m.form == nil && !m.help && !m.logOpen
 	switch {
 	case m.form != nil:
 		title = "Lägg till flöde"
@@ -39,6 +40,8 @@ func (m Model) View() tea.View {
 		right = m.formContent(rightWidth-4, panelHeight-4)
 	case m.help:
 		title, right = "Kortkommandon", m.helpContent(rightWidth-4, panelHeight-4)
+	case m.logOpen:
+		title, right = "Logg · "+filepath.Base(m.logPath), m.logContent(rightWidth-4, panelHeight-4)
 	case wide:
 		listWidth, readerWidth := m.columns()
 		right = m.renderPanel(title, m.articleList(listWidth-4, panelHeight-4), listWidth, panelHeight,
@@ -52,7 +55,7 @@ func (m Model) View() tea.View {
 	}
 	if !wide {
 		right = m.renderPanel(title, right, rightWidth, panelHeight,
-			m.focus == articlesPanel || m.form != nil || m.help)
+			m.focus == articlesPanel || m.form != nil || m.help || m.logOpen)
 	}
 	footer := footerBar([][2]string{
 		{"j/k", "välj"}, {"enter", "läs"}, {"]/[", "nästa oläst"}, {"{/}", "kategori"}, {"1/2", "panel"}, {"A", "allt läst"}, {"/", "sök"},
@@ -74,6 +77,10 @@ func (m Model) View() tea.View {
 		footer = footerBar([][2]string{
 			{"j/k", "rulla"}, {"d/u", "halv sida"}, {"f/b", "sida"}, {"g/G", "först/sist"}, {"esc", "stäng"}, {"q", "avsluta"},
 		}, false, m.width, p)
+	} else if m.logOpen {
+		footer = footerBar([][2]string{
+			{"j/k", "rulla"}, {"d/u", "halv sida"}, {"g/G", "först/sist"}, {"r", "läs om"}, {"esc", "stäng"},
+		}, true, m.width, p)
 	}
 	status, statusTone := "", toneInfo
 	if m.mock {
@@ -338,7 +345,7 @@ func (m Model) sidebarRow(name string, unread int, selected bool, nameStyle lipg
 	nameWidth := max(1, width-4-lipgloss.Width(badge)-1)
 	name = ansi.Truncate(name, nameWidth, "…")
 	if selected {
-		return p.selected(m.focus == feedsPanel && m.form == nil && !m.help).Render(bar(marker+" "+dot+" "+name, badge, width))
+		return p.selected(m.focus == feedsPanel && m.form == nil && !m.help && !m.logOpen).Render(bar(marker+" "+dot+" "+name, badge, width))
 	}
 	gap := max(0, width-4-lipgloss.Width(name)-lipgloss.Width(badge))
 	counts := lipgloss.NewStyle().Foreground(p.unread)
@@ -590,5 +597,6 @@ r  Uppdatera flödena
 Övrigt
 t  Växla tema
 ?  Hjälp · Esc stäng · q avsluta
+!  Visa loggen (r läser om, Esc stänger)
 Ctrl+c  Avsluta, även i formulär
 Urklipp använder OSC52 (t.ex. Ghostty).`

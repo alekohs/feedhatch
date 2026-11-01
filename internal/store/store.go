@@ -1,6 +1,7 @@
 package store
 
 import (
+	"alekohs/feedhatch/internal/constants"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -23,7 +24,7 @@ func OpenMock() (*Store, error) {
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
-	db, err := OpenPath(filepath.Join(dir, "feeds.db"))
+	db, err := OpenPath(filepath.Join(dir, constants.FeedDb))
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func Open(name string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return OpenPath(filepath.Join(dir, "feeds.db"))
+	return OpenPath(filepath.Join(dir, constants.FeedDb))
 }
 
 func OpenPath(path string) (*Store, error) {
