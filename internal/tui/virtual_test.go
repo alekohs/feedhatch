@@ -34,7 +34,7 @@ func TestStartupSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	m, err := New(m.store, nil, nil, false, "")
+	m, err := New(m.store, nil, nil, Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,14 +48,14 @@ func TestOlastaKeepsReadArticleUntilYouLeave(t *testing.T) {
 	if m.feeds[0].articles[0].unread {
 		t.Fatal("opening should mark the article read")
 	}
-	for _, keys := range [][]string{{"h"}, {"l"}, {"1"}, {"2"}, {"tab"}, {"tab"}, {"]"}, {"["}} {
+	for _, keys := range [][]string{{"h"}, {"l"}, {"alt+1"}, {"alt+2"}, {"tab"}, {"tab"}, {"]"}, {"["}} {
 		m = press(m, keys...)
 		if len(m.articleRefs()) != 5 {
 			t.Fatalf("%v dropped a read article from Olästa", keys)
 		}
 	}
 
-	m = press(m, "1", "j", "k")
+	m = press(m, "alt+1", "j", "k")
 	if len(m.articleRefs()) != m.totalUnread() || len(m.articleRefs()) >= 5 {
 		t.Fatalf("selecting another sidebar entry should drop read articles, got %d", len(m.articleRefs()))
 	}
@@ -178,7 +178,7 @@ func TestNextUnreadAcrossFeeds(t *testing.T) {
 		t.Fatalf("status = %q", m.status)
 	}
 
-	m = press(feedModel(t), "G", "2", "[")
+	m = press(feedModel(t), "G", "alt+2", "[")
 	if m.feedIndex != 2 || currentTitle(m) != "Att bygga vidare med Go" || m.status != "Nästa oläst i The Go Blog." {
 		t.Fatalf("[ should open the previous unread in the previous feed, got feed %d %q (%q)", m.feedIndex, currentTitle(m), m.status)
 	}
@@ -251,15 +251,15 @@ func TestCategoryJumpsInSidebar(t *testing.T) {
 }
 
 func TestFocusKeys(t *testing.T) {
-	m := press(sizedModel(t), "2")
+	m := press(sizedModel(t), "alt+2")
 	if m.focus != articlesPanel {
 		t.Fatal("2 should focus the article panel")
 	}
-	m = press(m, "enter", "1")
+	m = press(m, "enter", "alt+1")
 	if m.focus != feedsPanel || m.reading {
 		t.Fatal("1 should focus the sidebar and close the reader")
 	}
-	m = press(m, "2")
+	m = press(m, "alt+2")
 	if m.focus != articlesPanel {
 		t.Fatal("2 should focus the article panel again")
 	}
@@ -380,7 +380,7 @@ func TestAllFeedsDeletedElsewhere(t *testing.T) {
 		m.View()
 	}
 
-	m := press(sizedModel(t), "1")
+	m := press(sizedModel(t), "alt+1")
 	for _, feed := range m.feeds {
 		if err := m.store.DeleteFeed(feed.id); err != nil {
 			t.Fatal(err)

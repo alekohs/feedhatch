@@ -70,7 +70,7 @@ func (m Model) matchingRows() []int {
 	}
 	var matches []int
 	for i, line := range m.readerLines(m.readerWidth()) {
-		if pattern.MatchString(line) {
+		if pattern.MatchString(plainLine(line)) {
 			matches = append(matches, i)
 		}
 	}

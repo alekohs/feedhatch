@@ -2,18 +2,24 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"alekohs/feedhatch/internal/graphics"
+	"alekohs/feedhatch/internal/parser"
 )
 
 func (m Model) View() tea.View {
 	p := m.palette()
 	v := tea.NewView("")
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "feedhatch"
 	v.BackgroundColor, v.ForegroundColor = p.background, p.text
 	if m.width < 60 || m.height < 14 {
@@ -28,7 +34,7 @@ func (m Model) View() tea.View {
 		m.focus == feedsPanel && m.form == nil && !m.help && !m.logOpen)
 	title := m.listTitle()
 	var right, preview string
-	wide := m.wide() && m.form == nil && !m.help && !m.logOpen
+	wide := m.threeColumns()
 	switch {
 	case m.form != nil:
 		title = "Lägg till flöde"
@@ -58,11 +64,11 @@ func (m Model) View() tea.View {
 			m.focus == articlesPanel || m.form != nil || m.help || m.logOpen)
 	}
 	footer := footerBar([][2]string{
-		{"j/k", "välj"}, {"enter", "läs"}, {"]/[", "nästa oläst"}, {"{/}", "kategori"}, {"1/2", "panel"}, {"A", "allt läst"}, {"/", "sök"},
+		{"j/k", "välj"}, {"enter", "läs"}, {"]/[", "nästa oläst"}, {"{/}", "kategori"}, {"A", "allt läst"}, {"/", "sök"},
 	}, true, m.width, p)
 	if m.wide() {
 		footer = footerBar([][2]string{
-			{"j/k", "välj"}, {"enter", "läs i 3"}, {"]/[", "nästa oläst"}, {"{/}", "kategori"}, {"1/2/3", "panel"}, {"A", "allt läst"}, {"/", "sök"},
+			{"j/k", "välj"}, {"enter", "läs i 3"}, {"]/[", "nästa oläst"}, {"{/}", "kategori"}, {"A", "allt läst"}, {"/", "sök"},
 		}, true, m.width, p)
 	}
 	if m.reading {
@@ -258,10 +264,23 @@ func (m Model) readerTitle() string {
 
 func (m Model) wide() bool { return m.width >= 140 }
 
+// Column limits: every panel stays usable however far a border is dragged.
+const (
+	minSidebar    = 18
+	minRightPanel = 30
+	minList       = 24
+	minReader     = 40
+	resizeStep    = 2
+)
+
 // columns splits the space right of the sidebar between the list and the reader.
 func (m Model) columns() (list, reader int) {
 	_, right, _ := m.dimensions()
 	list = right * 2 / 5
+	if m.listWidth > 0 {
+		list = m.listWidth
+	}
+	list = max(minList, min(list, right-minReader))
 	return list, right - list
 }
 
@@ -275,7 +294,71 @@ func (m Model) readerWidth() int {
 
 func (m Model) dimensions() (left, right, height int) {
 	left = min(34, max(24, m.width/3))
+	if m.sidebarWidth > 0 {
+		left = m.sidebarWidth
+	}
+	left = max(minSidebar, min(left, m.width-minRightPanel))
 	return left, m.width - left, max(7, m.height-3)
+}
+
+// threeColumns reports whether the list and the reader are shown side by side right now.
+func (m Model) threeColumns() bool {
+	return m.wide() && m.form == nil && !m.help && !m.logOpen
+}
+
+// border is a draggable panel border.
+type border int
+
+const (
+	noBorder border = iota
+	sidebarBorder
+	listBorder
+)
+
+// borderAt finds the border under a mouse position: each border is two cells wide,
+// the edge of the panel on either side.
+func (m Model) borderAt(x, y int) border {
+	_, _, height := m.dimensions()
+	if y < 1 || y > height {
+		return noBorder
+	}
+	left, _, _ := m.dimensions()
+	if x == left-1 || x == left {
+		return sidebarBorder
+	}
+	if list, _ := m.columns(); m.threeColumns() && (x == left+list-1 || x == left+list) {
+		return listBorder
+	}
+	return noBorder
+}
+
+// moveBorder puts a border at screen column x, within the column limits.
+func (m *Model) moveBorder(b border, x int) {
+	switch b {
+	case sidebarBorder:
+		m.sidebarWidth = x + 1
+		m.sidebarWidth, _, _ = m.dimensions()
+	case listBorder:
+		left, _, _ := m.dimensions()
+		m.listWidth = x - left + 1
+		m.listWidth, _ = m.columns()
+	}
+	// Wrapped row numbers change with the width; do not silently copy a new range.
+	m.visual = false
+	m.ensureLineVisible()
+}
+
+// resize moves the border next to the focused panel: the list/reader border when the
+// list or reader has focus in three columns, otherwise the sidebar border.
+func (m *Model) resize(delta int) {
+	if m.threeColumns() && m.focus == articlesPanel {
+		left, _, _ := m.dimensions()
+		list, _ := m.columns()
+		m.moveBorder(listBorder, left+list-1+delta)
+		return
+	}
+	left, _, _ := m.dimensions()
+	m.moveBorder(sidebarBorder, left-1+delta)
 }
 
 func (m Model) renderPanel(title, content string, width, height int, focused bool) string {
@@ -431,11 +514,120 @@ func (m Model) articleList(width, height int) string {
 }
 
 func (m Model) readerLines(width int) []string {
-	if a := m.currentArticle(); a != nil {
-		text := a.title + "\n" + a.date + " · " + m.currentFeed().name + "\n\n" + a.body
-		return strings.Split(ansi.Wrap(text, max(1, width), ""), "\n")
+	a := m.currentArticle()
+	if a == nil {
+		return []string{"Ingen artikel vald."}
 	}
-	return []string{"Ingen artikel vald."}
+	head := a.title + "\n" + a.date + " · " + m.currentFeed().name + "\n"
+	lines := strings.Split(ansi.Wrap(head, max(1, width), ""), "\n")
+	for _, line := range a.bodyLines() {
+		if strings.HasPrefix(line, parser.Image) {
+			lines = append(lines, m.imageRows(line, a.link, width)...)
+			continue
+		}
+		lines = append(lines, strings.Split(ansi.Wrap(line, max(1, width), ""), "\n")...)
+	}
+	if a.link != "" {
+		// Many feeds only carry a teaser; the last link is always the article itself.
+		lines = append(lines, "", parser.LinkStart(len(a.links)+1)+"Läs hela artikeln"+parser.LinkOff)
+	}
+	return lines
+}
+
+// articleLinks are the current article's links as absolute URLs, numbered like the
+// parser's link markers, followed by the article's own link.
+func (m Model) articleLinks() []string {
+	a := m.currentArticle()
+	if a == nil {
+		return nil
+	}
+	var links []string
+	for _, href := range a.links {
+		links = append(links, resolveURL(a.link, href))
+	}
+	if a.link != "" {
+		links = append(links, a.link)
+	}
+	return links
+}
+
+// lineLink is a link on one reader line: the part of its text on that line, and its URL.
+type lineLink struct{ text, url string }
+
+// linksInLine returns the links on reader line i, in order.
+func (m Model) linksInLine(lines []string, i int) []lineLink {
+	if i < 0 || i >= len(lines) || graphics.IsPlaceholderRow(lines[i]) {
+		return nil
+	}
+	urls := m.articleLinks()
+	var links []lineLink
+	state, text := inlineAtStart(lines)[i], strings.Builder{}
+	flush := func() {
+		if state.link > 0 && state.link <= len(urls) && strings.TrimSpace(text.String()) != "" {
+			links = append(links, lineLink{text: strings.TrimSpace(text.String()), url: urls[state.link-1]})
+		}
+		text.Reset()
+	}
+	for _, r := range lines[i] {
+		if next := state; next.apply(r) {
+			if next.link != state.link {
+				flush()
+			}
+			state = next
+			continue
+		}
+		text.WriteRune(r)
+	}
+	flush()
+	return links
+}
+
+// linkInLine returns the URL of the link under display column col of reader line i.
+func (m Model) linkInLine(lines []string, i, col int) string {
+	if i < 0 || i >= len(lines) || graphics.IsPlaceholderRow(lines[i]) {
+		return ""
+	}
+	links := m.articleLinks()
+	state, x := inlineAtStart(lines)[i], 0
+	for _, r := range lines[i] {
+		if next := state; next.apply(r) {
+			state = next
+			continue
+		}
+		w := ansi.StringWidth(string(r))
+		if state.link > 0 && state.link <= len(links) && col >= x && col < x+w {
+			return links[state.link-1]
+		}
+		x += w
+	}
+	return ""
+}
+
+// linkAt returns the URL of the link at a mouse position in the reader, if any.
+func (m Model) linkAt(x, y int) string {
+	left, _, height := m.dimensions()
+	panel := left
+	switch {
+	case m.threeColumns():
+		list, _ := m.columns()
+		panel = left + list
+	case !m.reading || m.form != nil || m.help || m.logOpen:
+		return ""
+	}
+	// The reader's text starts after the border, padding and "> " prefix, and below
+	// the header row, the border and the panel title.
+	row, col := y-3, x-panel-4
+	lines := m.readerLines(m.readerWidth())
+	visible := height - 4
+	if row < 0 || row >= visible || col < 0 {
+		return ""
+	}
+	scroll := m.scroll
+	if !m.reading {
+		scroll = 0
+	}
+	start := min(scroll, max(0, len(lines)-visible))
+	return m.linkInLine(lines, start+row, col)
 }
 
 func (m Model) maxScroll() int {
@@ -457,24 +649,191 @@ func (m Model) reader(width, height int) string {
 	low, high := m.selectionRange()
 	pattern := searchPattern(m.search.query)
 	matchStyle := lipgloss.NewStyle().Foreground(p.accent).Bold(true).Reverse(true)
+	levels, states := headingLevels(lines), inlineAtStart(lines)
+	look := readerLook{pattern: pattern, match: matchStyle, links: m.articleLinks(), linkColor: p.feed}
+	// readerLines starts with the article title (possibly wrapped), then the date line.
+	titleRows := 0
+	if a := m.currentArticle(); a != nil {
+		titleRows = len(strings.Split(ansi.Wrap(a.title, max(1, m.readerWidth()), ""), "\n"))
+	}
 	var rendered []string
 	for i := start; i < min(len(lines), start+height); i++ {
 		prefix := "  "
 		if m.reading && i == m.line {
 			prefix = "> "
 		}
-		line := fit(prefix+highlightSearch(lines[i], pattern, matchStyle), width, 1)
+		style := headingStyle(p, levels[i])
+		if i < titleRows {
+			style = p.normal().Bold(true).Foreground(p.accent)
+		} else if i == titleRows {
+			style = p.normal().Foreground(p.muted)
+		}
 		switch {
 		case m.reading && m.visual && i >= low && i <= high:
-			line = p.selected(true).Render(line)
+			style = p.selected(true)
 		case m.reading && i == m.line:
-			line = p.normal().Underline(true).Render(line)
-		default:
-			line = p.normal().Render(line)
+			style = style.Underline(true)
 		}
-		rendered = append(rendered, line)
+		if graphics.IsPlaceholderRow(lines[i]) {
+			rendered = append(rendered, renderImageRow(prefix, lines[i], width, style))
+			continue
+		}
+		rendered = append(rendered, renderReaderLine(prefix, lines[i], states[i], width, style, look))
 	}
 	return strings.Join(rendered, "\n")
+}
+
+// inline is the style state at a point in a reader line, switched by the parser's
+// markers: bold, italic, and the number of the link the text belongs to (0 for none).
+type inline struct {
+	bold, italic bool
+	link         int
+}
+
+// readerLook holds what every line of one reader render shares.
+type readerLook struct {
+	pattern   *regexp.Regexp // search matches to highlight, or nil
+	match     lipgloss.Style
+	links     []string // absolute URLs, by link number - 1
+	linkColor color.Color
+}
+
+var headingMarker = regexp.MustCompile(`^(#{1,6}) `)
+
+// plainLine is a reader line as search and copy see it: no style markers, plain spaces.
+func plainLine(line string) string {
+	if graphics.IsPlaceholderRow(line) {
+		return ""
+	}
+	return parser.Plain(line)
+}
+
+// apply updates the state for one marker and reports whether r was a marker.
+func (s *inline) apply(r rune) bool {
+	switch string(r) {
+	case parser.BoldOn:
+		s.bold = true
+	case parser.BoldOff:
+		s.bold = false
+	case parser.ItalicOn:
+		s.italic = true
+	case parser.ItalicOff:
+		s.italic = false
+	case parser.LinkOff:
+		s.link = 0
+	default:
+		n, ok := parser.LinkNumber(r)
+		if !ok {
+			return false
+		}
+		s.link = n
+	}
+	return true
+}
+
+// headingLevels gives each line its heading level (0 for none). A heading wraps onto
+// following lines until the blank line that ends it.
+func headingLevels(lines []string) []int {
+	levels := make([]int, len(lines))
+	level := 0
+	for i, line := range lines {
+		if marker := headingMarker.FindStringSubmatch(line); marker != nil {
+			level = len(marker[1])
+		} else if strings.TrimSpace(line) == "" {
+			level = 0
+		}
+		levels[i] = level
+	}
+	return levels
+}
+
+// inlineAtStart gives each line the bold/italic state left open by earlier lines, so
+// styles continue across wrapped lines; a blank line ends a paragraph and closes them.
+func inlineAtStart(lines []string) []inline {
+	states := make([]inline, len(lines))
+	var state inline
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			state = inline{}
+		}
+		states[i] = state
+		for _, r := range line {
+			state.apply(r)
+		}
+	}
+	return states
+}
+
+func headingStyle(p palette, level int) lipgloss.Style {
+	switch level {
+	case 0:
+		return p.normal()
+	case 1:
+		return p.normal().Bold(true).Foreground(p.accent)
+	case 2:
+		return p.normal().Bold(true).Foreground(p.category)
+	case 3:
+		return p.normal().Bold(true).Foreground(p.feed)
+	}
+	return p.normal().Bold(true)
+}
+
+// renderReaderLine draws one reader line at exactly width cells. Each piece is styled on
+// its own, so bold/italic text and search matches don't reset the line's heading, cursor
+// or selection style.
+func renderReaderLine(prefix, line string, state inline, width int, style lipgloss.Style, look readerLook) string {
+	out := style.Render(prefix)
+	var part strings.Builder
+	flush := func() {
+		if part.Len() == 0 {
+			return
+		}
+		partStyle := style.Bold(state.bold || style.GetBold()).Italic(state.italic)
+		if state.link > 0 && state.link <= len(look.links) {
+			// An OSC 8 hyperlink: terminals that support it make the text clickable.
+			url := look.links[state.link-1]
+			out += ansi.SetHyperlink(url) +
+				renderPart(part.String(), partStyle.Foreground(look.linkColor).Underline(true), look.pattern, look.match) +
+				ansi.ResetHyperlink()
+		} else {
+			out += renderPart(part.String(), partStyle, look.pattern, look.match)
+		}
+		part.Reset()
+	}
+	for _, r := range line {
+		if next := state; next.apply(r) {
+			flush()
+			state = next
+			continue
+		}
+		part.WriteRune(r)
+	}
+	flush()
+	if w := lipgloss.Width(out); w > width {
+		// Truncating can cut off the end of a hyperlink; close it so it can't run on.
+		return ansi.Truncate(out, width, "…") + ansi.ResetHyperlink()
+	} else if w < width {
+		out += style.Render(strings.Repeat(" ", width-w))
+	}
+	return out
+}
+
+// renderPart draws text in one style, with search matches highlighted.
+func renderPart(part string, partStyle lipgloss.Style, pattern *regexp.Regexp, matchStyle lipgloss.Style) string {
+	out, last := "", 0
+	if pattern != nil {
+		for _, match := range pattern.FindAllStringIndex(part, -1) {
+			if match[0] > last {
+				out += partStyle.Render(part[last:match[0]])
+			}
+			out += matchStyle.Render(part[match[0]:match[1]])
+			last = match[1]
+		}
+	}
+	if last < len(part) {
+		out += partStyle.Render(part[last:])
+	}
+	return out
 }
 
 func (m Model) formContent(width, height int) string {
@@ -568,7 +927,8 @@ func fit(text string, width, height int) string {
 const helpContent = `Navigera
 h/l  Byt panel · öppna artikel
 j/k  Välj post eller flytta en rad
-Enter öppna · Tab byt panel · 1/2 välj panel · 3 fokusera läsvyn
+Enter öppna · Tab byt panel · Alt+1/2 välj panel · Alt+3 fokusera läsvyn
+5j  En siffra före en rörelse upprepar den: 5j, 12k, 3J, 2], 20G till rad 20
 Från 140 kolumner förhandsvisas artikeln i en tredje kolumn; den markeras som läst när du öppnar den med Enter/l/3
 g/G  Första/sista posten eller raden
 d/u  Halv sida ner/upp (även Ctrl+d/u)
@@ -596,6 +956,10 @@ r  Uppdatera flödena
 
 Övrigt
 t  Växla tema
+I  Visa/dölj bilder i artiklar (kitty och Ghostty)
+o  Öppna länken på markörens rad (flera: välj med siffra), annars artikeln · klicka på en länk för att öppna den
+< / >  Smalare/bredare kolumn (kanten intill fokus) · = standardbredd
+Dra en kolumnkant med musen för att ändra bredden
 ?  Hjälp · Esc stäng · q avsluta
 !  Visa loggen (r läser om, Esc stänger)
 Ctrl+c  Avsluta, även i formulär

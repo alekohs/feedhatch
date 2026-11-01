@@ -25,7 +25,7 @@ func sizedModel(t *testing.T) Model {
 	if err := st.SeedMock(); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(st, nil, nil, false, filepath.Join(t.TempDir(), "feedhatch.log"))
+	m, err := New(st, nil, nil, Config{LogPath: filepath.Join(t.TempDir(), "feedhatch.log"), ImageDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +57,9 @@ func keyMessage(key string) tea.KeyPressMsg {
 	}
 	if code, ok := codes[key]; ok {
 		return tea.KeyPressMsg{Code: code}
+	}
+	if strings.HasPrefix(key, "alt+") {
+		return tea.KeyPressMsg{Code: []rune(strings.TrimPrefix(key, "alt+"))[0], Mod: tea.ModAlt}
 	}
 	if strings.HasPrefix(key, "ctrl+") {
 		return tea.KeyPressMsg{Code: []rune(strings.TrimPrefix(key, "ctrl+"))[0], Mod: tea.ModCtrl}

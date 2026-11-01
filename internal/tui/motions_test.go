@@ -192,7 +192,9 @@ func TestPagingHelpAndClamping(t *testing.T) {
 	if m.helpScroll != 0 {
 		t.Fatal("help paging must stop at the beginning")
 	}
-	m = press(m, "f", "f", "f")
+	for range 10 {
+		m = press(m, "f")
+	}
 	if m.helpScroll != m.maxHelpScroll() {
 		t.Fatal("help paging must stop at the end")
 	}
@@ -203,5 +205,56 @@ func TestMotionKeysRemainTextInForms(t *testing.T) {
 	m = press(m, "d", "u", "f", "b", "{", "}", "H", "M", "L", "z", "z")
 	if m.form.values[1] != "dufb{}HMLzz" || m.reading || m.pendingZ {
 		t.Fatal("motion keys must remain ordinary text in forms")
+	}
+}
+
+func TestCountRepeatsMotions(t *testing.T) {
+	m := motionReader(t)
+
+	m = press(m, "5", "j")
+	if m.line != 5 {
+		t.Fatalf("5j: line = %d, want 5", m.line)
+	}
+	m = press(m, "1", "2", "j")
+	if m.line != 17 {
+		t.Fatalf("12j: line = %d, want 17", m.line)
+	}
+	m = press(m, "3", "k")
+	if m.line != 14 {
+		t.Fatalf("3k: line = %d, want 14", m.line)
+	}
+	m = press(m, "2", "0", "G")
+	if m.line != 19 {
+		t.Fatalf("20G: line = %d, want 19 (line 20)", m.line)
+	}
+	m = press(m, "G")
+	if want := len(m.readerLines(m.readerWidth())) - 1; m.line != want {
+		t.Fatalf("G without a count: line = %d, want the last line %d", m.line, want)
+	}
+}
+
+func TestCountIsShownAndUsedUpByTheNextKey(t *testing.T) {
+	m := motionReader(t)
+
+	m = press(m, "4")
+	if m.status != "4" || m.line != 0 {
+		t.Fatalf("status = %q, line = %d: a count should show and not move yet", m.status, m.line)
+	}
+	m = press(m, "esc")
+	if m.count != 0 {
+		t.Fatalf("esc should drop the count, got %d", m.count)
+	}
+
+	m = press(motionReader(t), "0", "j")
+	if m.line != 1 {
+		t.Fatalf("0 alone is not a count; line = %d, want 1", m.line)
+	}
+}
+
+func TestCountWorksInLists(t *testing.T) {
+	m := feedModel(t)
+	m = press(m, "alt+2", "2", "j")
+	if m.articleIndex != 2 {
+		t.Fatalf("2j in the article list: index = %d, want 2", m.articleIndex)
 	}
 }

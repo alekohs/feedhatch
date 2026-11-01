@@ -93,11 +93,11 @@ func TestWideEnterReadsAndHReturns(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.View().Content), "3 Läsning · ") || panelCount(m) != 3 {
 		t.Fatal("the preview should stay after leaving the reader")
 	}
-	m = press(m, "3")
+	m = press(m, "alt+3")
 	if !m.reading {
 		t.Fatal("3 should focus the reader")
 	}
-	m = press(m, "2")
+	m = press(m, "alt+2")
 	if m.reading || m.focus != articlesPanel {
 		t.Fatal("2 should focus the list in wide mode")
 	}
@@ -108,7 +108,7 @@ func TestKeyThreeFocusesReader(t *testing.T) {
 		m := feedModel(t)
 		m.width = width
 		unread := m.totalUnread()
-		m = press(m, "3")
+		m = press(m, "alt+3")
 		if !m.reading || m.focus != articlesPanel || m.totalUnread() != unread-1 {
 			t.Fatalf("3 should open the article at width %d", width)
 		}
@@ -171,7 +171,7 @@ func TestWidePreviewWithEmptyList(t *testing.T) {
 	if !strings.Contains(content, "Välj en artikel.") || !strings.Contains(content, "3 Läsning") {
 		t.Fatal("an empty list should show the placeholder preview")
 	}
-	m = press(m, "enter", "3")
+	m = press(m, "enter", "alt+3")
 	if m.reading {
 		t.Fatal("3 without an article must not open the reader")
 	}

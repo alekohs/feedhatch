@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"os/exec"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,12 +14,16 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"alekohs/feedhatch/internal/event"
+	"alekohs/feedhatch/internal/parser"
 	"alekohs/feedhatch/internal/store"
 )
 
 type article struct {
 	id                int64
 	title, date, body string
+	link              string
+	links             []string // the body's link URLs, by the parser's link numbers
+	image             string   // cover image URL, from the feed item rather than the body
 	published         time.Time
 	unread            bool
 }
@@ -62,41 +68,50 @@ type form struct {
 }
 
 type Model struct {
-	store          *store.Store
-	updates        <-chan FetchedMsg
-	announce       func(event.Event)
-	width, height  int
-	feeds          []subscription
-	feedIndex      int
-	articleIndex   int
-	focus          panel
-	reading        bool
-	scroll         int
-	line           int
-	visual         bool
-	anchor         int
-	pendingZ       bool
-	pendingDelete  bool
-	status         string
-	help           bool
-	helpScroll     int
-	logOpen        bool
-	logPath        string
-	logLines       []string
-	logScroll      int
-	logGen         int
-	terminalTheme  bool
-	form           *form
-	search         searchState
-	filter         string
-	filtering      bool
-	mock           bool
-	view           listView
-	keep           map[int64]bool
-	pendingReadAll bool
-	updated        time.Time
-	fetchFailed    bool
-	tone           tone
+	store           *store.Store
+	updates         <-chan FetchedMsg
+	announce        func(event.Event)
+	width, height   int
+	feeds           []subscription
+	feedIndex       int
+	articleIndex    int
+	focus           panel
+	reading         bool
+	scroll          int
+	line            int
+	visual          bool
+	anchor          int
+	pendingZ        bool
+	pendingDelete   bool
+	status          string
+	help            bool
+	helpScroll      int
+	logOpen         bool
+	logPath         string
+	logLines        []string
+	logScroll       int
+	logGen          int
+	sidebarWidth    int // 0 uses the default width; set by dragging or < and >
+	listWidth       int
+	dragging        border
+	gallery         *gallery
+	imageDir        string
+	imagesSupported bool
+	imagesOn        bool // images load automatically where supported, until I turns them off
+	terminalTheme   bool
+	form            *form
+	search          searchState
+	filter          string
+	filtering       bool
+	mock            bool
+	view            listView
+	keep            map[int64]bool
+	pendingReadAll  bool
+	pendingLinks    []lineLink // o on a line with several links: waiting for a digit
+	count           int        // a Vim-style count typed before a motion, e.g. the 5 in 5j
+	updated         time.Time
+	fetchFailed     bool
+	tone            tone
 }
 
 // FetchedMsg tells the TUI that the worker finished a round and the store may have new articles.
@@ -105,8 +120,19 @@ type FetchedMsg struct{ Err error }
 // New loads the feeds from st. Each FetchedMsg on updates reloads them, and announce
 // is called after every change the TUI saves, so other listeners hear about it.
 // mock marks the session as sample data. Both updates and announce may be nil.
-func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event), mock bool, logPath string) (Model, error) {
-	m := Model{store: st, updates: updates, announce: announce, mock: mock, logPath: logPath, terminalTheme: true}
+// Config holds the TUI's settings from the command line and environment.
+type Config struct {
+	Mock     bool
+	LogPath  string // the log file shown with !
+	ImageDir string // the disk cache for article images
+	Images   bool   // the terminal can show images (kitty graphics protocol)
+}
+
+func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event), cfg Config) (Model, error) {
+	m := Model{
+		store: st, updates: updates, announce: announce, mock: cfg.Mock, logPath: cfg.LogPath, terminalTheme: true,
+		imageDir: cfg.ImageDir, imagesSupported: cfg.Images, imagesOn: cfg.Images, gallery: newGallery(),
+	}
 	if err := m.load(); err != nil {
 		return Model{}, err
 	}
@@ -169,8 +195,13 @@ func (m *Model) load() error {
 		}
 		sub := subscription{id: f.ID, interval: f.Interval, name: f.Name, url: f.URL, category: f.Category}
 		for _, a := range articles {
+			body, links := parser.Text(a.Content)
+			title, _ := parser.Text(a.Title)
+			title = plainLine(title)
+
 			sub.articles = append(sub.articles, article{
-				id: a.ID, title: a.Title, date: formatDate(a.PublishedAt), body: a.Content, published: a.PublishedAt, unread: !a.Read,
+				id: a.ID, title: title, date: formatDate(a.PublishedAt), body: body, link: a.Link, links: links, image: a.Image,
+				published: a.PublishedAt, unread: !a.Read,
 			})
 		}
 		m.feeds = append(m.feeds, sub)
@@ -257,7 +288,15 @@ func (m Model) waitForUpdate() tea.Cmd {
 	return func() tea.Msg { return <-updates }
 }
 
+// Update handles msg, then starts loading and placing the images of the article on
+// screen, since nearly any message can change which article or how much room it has.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := m.update(msg)
+	next := updated.(Model)
+	return next, tea.Batch(cmd, next.imageCmds())
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case FetchedMsg:
 		m.updated, m.fetchFailed = time.Now(), msg.Err != nil
@@ -274,6 +313,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loadLog()
 		return m, m.logTick()
+	case imageLoadedMsg:
+		m.imageLoaded(msg)
+	case tea.MouseClickMsg:
+		if mouse := msg.Mouse(); mouse.Button == tea.MouseLeft {
+			m.dragging = m.borderAt(mouse.X, mouse.Y)
+			if url := m.linkAt(mouse.X, mouse.Y); m.dragging == noBorder && url != "" {
+				m.openLink(url)
+			}
+		}
+	case tea.MouseMotionMsg:
+		if m.dragging != noBorder {
+			m.moveBorder(m.dragging, msg.Mouse().X)
+		}
+	case tea.MouseReleaseMsg:
+		m.dragging = noBorder
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Wrapped row numbers change on resize; do not silently copy a new range.
@@ -356,6 +410,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status, m.tone = "", toneInfo
+		if links := m.pendingLinks; links != nil {
+			m.pendingLinks = nil
+			if n, err := strconv.Atoi(key); err == nil && n >= 1 && n <= len(links) {
+				m.openLink(links[n-1].url)
+			} else {
+				m.status = "Avbröts."
+			}
+			return m, nil
+		}
 		if m.pendingDelete {
 			m.pendingDelete = false
 			if key == "y" {
@@ -374,6 +437,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if len(key) == 1 && key >= "0" && key <= "9" && (key != "0" || m.count > 0) {
+			m.count = min(m.count*10+int(key[0]-'0'), 9999)
+			m.status = strconv.Itoa(m.count)
+			return m, nil
+		}
+		// Every other key uses up the count; only motions repeat with it.
+		n, counted := max(1, m.count), m.count > 0
+		m.count = 0
 		previousZ := m.pendingZ
 		m.pendingZ = false
 		if key == "z" && m.reading {
@@ -391,29 +462,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if delta, ok := m.pageMotion(key); ok {
-			m.move(delta)
+			m.move(delta * n)
 			return m, nil
 		}
 		switch key {
 		case "q":
 			return m, tea.Quit
-		case "]":
-			m.openUnread(1)
-		case "[":
-			m.openUnread(-1)
-		case "J":
-			m.stepArticle(1)
-		case "K":
-			m.stepArticle(-1)
-		case "1":
+		case "]", "[", "J", "K":
+			for range n {
+				switch key {
+				case "]":
+					m.openUnread(1)
+				case "[":
+					m.openUnread(-1)
+				case "J":
+					m.stepArticle(1)
+				case "K":
+					m.stepArticle(-1)
+				}
+			}
+		case "alt+1":
 			m.focus = feedsPanel
 			m.reading, m.scroll, m.visual = false, 0, false
-		case "2":
+		case "alt+2":
 			m.focus = articlesPanel
 			if m.wide() {
 				m.reading, m.scroll, m.visual = false, 0, false
 			}
-		case "3":
+		case "alt+3":
 			m.focus = articlesPanel
 			if !m.reading {
 				m.openArticle()
@@ -442,6 +518,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			m.help = true
 			m.helpScroll = 0
+		case "o":
+			if m.reading || m.threeColumns() {
+				m.openFromLine()
+			}
+		case "I":
+			switch {
+			case !m.imagesSupported:
+				m.status, m.tone = "Terminalen kan inte visa bilder (kräver kitty eller Ghostty).", toneWarn
+			case m.imagesOn:
+				m.imagesOn = false
+				m.status = "Bilder avstängda."
+			default:
+				m.imagesOn = true
+				m.status = "Bilder påslagna."
+			}
+			m.ensureLineVisible()
+		case "<":
+			m.resize(-resizeStep)
+		case ">":
+			m.resize(resizeStep)
+		case "=":
+			m.sidebarWidth, m.listWidth = 0, 0
+			m.visual = false
+			m.ensureLineVisible()
 		case "!":
 			m.logOpen, m.logScroll = true, 1<<20
 			m.logGen++
@@ -505,24 +605,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reading, m.scroll, m.visual = false, 0, false
 			}
 		case "j", "down":
-			m.move(1)
+			m.move(n)
 		case "k", "up":
-			m.move(-1)
+			m.move(-n)
 		case "g", "home":
 			m.move(-1 << 20)
 		case "G", "end":
 			m.move(1 << 20)
-		case "{":
-			if m.focus == feedsPanel && !m.reading {
-				m.moveCategory(-1)
-			} else {
-				m.moveParagraph(-1)
+			if counted { // like Vim: 20G goes to line 20
+				m.move(-1 << 20)
+				m.move(n - 1)
 			}
-		case "}":
-			if m.focus == feedsPanel && !m.reading {
-				m.moveCategory(1)
-			} else {
-				m.moveParagraph(1)
+		case "{", "}":
+			dir := 1
+			if key == "{" {
+				dir = -1
+			}
+			for range n {
+				if m.focus == feedsPanel && !m.reading {
+					m.moveCategory(dir)
+				} else {
+					m.moveParagraph(dir)
+				}
 			}
 		case "H", "M", "L":
 			m.moveWithinScreen(key)
@@ -575,7 +679,7 @@ func (m Model) articleRefs() []ref {
 		pattern := searchPattern(m.filter)
 		refs = slices.DeleteFunc(refs, func(r ref) bool {
 			a := m.feeds[r.feed].articles[r.article]
-			return !pattern.MatchString(a.title) && !pattern.MatchString(a.body)
+			return !pattern.MatchString(a.title) && !pattern.MatchString(plainLine(a.body))
 		})
 	}
 	if m.view != feedView {
@@ -974,7 +1078,7 @@ func (m Model) selectedText() (string, int) {
 	lines := m.readerLines(m.readerWidth())
 	start, end := m.selectionRange()
 	start, end = clamp(start, len(lines)), clamp(end, len(lines))
-	return strings.Join(lines[start:end+1], "\n"), end - start + 1
+	return plainLine(strings.Join(lines[start:end+1], "\n")), end - start + 1
 }
 
 func (m Model) selectionRange() (int, int) {
@@ -1040,5 +1144,46 @@ func (m *Model) updateFilter(msg tea.KeyPressMsg) {
 		m.setFilter("")
 	default:
 		m.setFilter(m.filter + printable(msg.Text))
+	}
+}
+
+// openURL opens a URL in the default browser; tests replace it.
+var openURL = func(url string) error {
+	opener := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		opener = "open"
+	}
+	return exec.Command(opener, url).Start()
+}
+
+func (m *Model) openLink(url string) {
+	if err := openURL(url); err != nil {
+		m.status, m.tone = "Kunde inte öppna länken: "+err.Error(), toneErr
+		return
+	}
+	m.status, m.tone = "Öppnar "+url, toneInfo
+}
+
+// openFromLine opens the link on the cursor line; with several it asks which one, and
+// without any it opens the article itself.
+func (m *Model) openFromLine() {
+	links := m.linksInLine(m.readerLines(m.readerWidth()), m.line)
+	switch {
+	case len(links) == 1:
+		m.openLink(links[0].url)
+	case len(links) > 1:
+		links = links[:min(len(links), 9)]
+		var choices []string
+		for i, l := range links {
+			choices = append(choices, fmt.Sprintf("%d %s", i+1, l.text))
+		}
+		m.pendingLinks = links
+		m.status, m.tone = strings.Join(choices, " · ")+fmt.Sprintf(" — välj 1–%d, esc avbryter", len(links)), toneWarn
+	default:
+		if a := m.currentArticle(); a != nil && a.link != "" {
+			m.openLink(a.link)
+		} else {
+			m.status, m.tone = "Artikeln har ingen länk.", toneWarn
+		}
 	}
 }

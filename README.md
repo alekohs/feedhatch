@@ -168,7 +168,8 @@ previews the selected article without marking it read; opening it with `enter`,
 | `j` / `k` | Select feed or article; move the line cursor in the reader |
 | `Enter` | Open feed/article |
 | `Tab` | Switch panel |
-| `1` / `2` / `3` | Focus the feed list / the article list / the reader |
+| `Alt+1` / `Alt+2` / `Alt+3` | Focus the feed list / the article list / the reader |
+| `5j`, `12k`, … | A count before a motion repeats it, like in Vim: `j`/`k`, `J`/`K`, `]`/`[`, `{`/`}` and the page keys; `20G` goes to line 20 |
 | `]` / `[` | Open the next/previous unread article, continuing into the next feed |
 | `J` / `K` | Next/previous article in the current list, also from the reader |
 | `Esc` / `h` | Cancel selection, then back to the article list |
@@ -191,6 +192,9 @@ previews the selected article without marking it read; opening it with `enter`,
 | `m` | Toggle read/unread for the selected article |
 | `r` | Reload the lists from the database |
 | `t` | Toggle terminal colors (default)/base theme |
+| `I` | Show/hide images in articles (in terminals that can show them) |
+| `o` | Open the link on the cursor line in your browser; with several links, the status bar numbers them and a digit picks one; on a line without links, the article itself. Clicking a link opens it too |
+| `<` / `>` | Move the column border next to the focused panel; `=` resets the widths. You can also drag a border with the mouse |
 | `?` | Show/close help |
 | `!` | Show/close the log page (the end of `feedhatch.log`), re-read every second while open; at the end it follows new lines |
 | `q` / `Ctrl+c` | Quit (`Ctrl+c` also works in forms) |
@@ -215,6 +219,29 @@ wrap. Multiple occurrences on the same row count as one navigation stop.
 `n` and `N` also extend a visual selection. Submitting an empty `/` prompt
 repeats the previous search; `Ctrl+u` clears the input. Cancelling the prompt
 keeps the previous query and cursor position. `?` still opens help.
+
+## Links
+
+Links in articles are underlined in color and open in your browser when clicked
+(or with `o` on their line). Every article ends with a **Läs hela artikeln**
+link, handy for feeds that only carry a teaser. Inside tmux, clicks need
+`set -g mouse on`; terminals that support hyperlinks also make links
+clickable themselves, which in tmux needs `set -as terminal-features ',*:hyperlinks'`.
+
+## Images
+
+In kitty and Ghostty, images in articles are shown in the reader (using the kitty
+graphics protocol), including the cover image many feeds attach to each item.
+They're downloaded when you open an article and cached in
+`~/.cache/feedhatch/images`; tiny tracking pixels are skipped. `I` turns images
+off and on. In other terminals feedhatch never downloads images and shows
+`[Bild: <alt text>]` instead.
+
+Inside tmux, images need passthrough (tmux 3.3 or newer):
+
+```sh
+set -g allow-passthrough on   # in ~/.tmux.conf
+```
 
 ## Colors and clipboard
 

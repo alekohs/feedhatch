@@ -19,6 +19,7 @@ import (
 
 	"alekohs/feedhatch/internal/constants"
 	"alekohs/feedhatch/internal/event"
+	"alekohs/feedhatch/internal/graphics"
 	"alekohs/feedhatch/internal/server"
 	"alekohs/feedhatch/internal/store"
 	"alekohs/feedhatch/internal/tui"
@@ -112,7 +113,12 @@ func runTUI(name string, mock bool, logSize int) {
 		announce = client.Send
 	}
 
-	model, err := tui.New(srv.Store, updates, announce, mock, logPath)
+	model, err := tui.New(srv.Store, updates, announce, tui.Config{
+		Mock:     mock,
+		LogPath:  logPath,
+		ImageDir: filepath.Join(filepath.Dir(logPath), "images"),
+		Images:   graphics.Supported(),
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

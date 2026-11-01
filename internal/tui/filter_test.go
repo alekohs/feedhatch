@@ -150,12 +150,12 @@ func TestFilterKeepsCursorOnSameArticle(t *testing.T) {
 
 func TestFilterClearedBySidebarChange(t *testing.T) {
 	m := filterFor(allModel(t), "go")
-	m = press(m, "1", "k")
+	m = press(m, "alt+1", "k")
 	if m.view != unreadView || m.filter != "" {
 		t.Fatal("changing the sidebar entry should clear the filter")
 	}
 	m = filterFor(m, "go")
-	m = press(m, "1", "j", "j")
+	m = press(m, "alt+1", "j", "j")
 	if m.view != feedView || m.filter != "" {
 		t.Fatal("moving to a feed should clear the filter")
 	}
