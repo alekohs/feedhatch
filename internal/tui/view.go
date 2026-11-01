@@ -879,7 +879,7 @@ func (m Model) formContent(width, height int) string {
 	if f.single && f.field == 2 {
 		intro = "Skriv en befintlig eller ny kategori. Flödet flyttas när du sparar."
 	} else if f.single {
-		intro = "Hur ofta flödet ska uppdateras, i minuter."
+		intro = "Hur ofta flödet ska uppdateras, t.ex. 30m, 2h, 1d eller 1w."
 	}
 	if f.err != "" {
 		intro = f.err
@@ -888,7 +888,7 @@ func (m Model) formContent(width, height int) string {
 	// Split the wrapped introduction so viewport positions count terminal rows.
 	lines = strings.Split(strings.Join(lines, "\n"), "\n")
 	activeLine := 0
-	labels := []string{"URL", "Namn (valfritt)", "Kategori", "Intervall (minuter)"}
+	labels := []string{"URL", "Namn (valfritt)", "Kategori", "Intervall (t.ex. 15m, 2h, 1d)"}
 	for i, label := range labels {
 		if f.single && i != f.field {
 			continue

@@ -186,9 +186,9 @@ previews the selected article without marking it read; opening it with `enter`,
 | `n` / `N` | Jump to the next/previous matching text row, wrapping at the edges |
 | `v` | Start/stop line selection in the reader |
 | `y` | Copy selected lines, or the current line if nothing is selected |
-| `a` | Add feed: URL, optional name, category and update interval (default 15 minutes) |
+| `a` | Add feed: URL, optional name, category and update interval (default `15m`) |
 | `c` | Move the selected feed to an existing or new category (not on Olästa/Alla artiklar) |
-| `i` | Change how often the selected feed updates, in minutes |
+| `i` | Change how often the selected feed updates: `30m`, `2h`, `1d`, `1w` or combinations like `1h30m` (a plain number is minutes) |
 | `A` | Mark all articles in the selected feed as read; on Olästa/Alla artiklar, all feeds after `y` |
 | `D` | Delete the selected feed and its articles; `y` confirms, any other key cancels |
 | `m` | Toggle read/unread for the selected article |

@@ -591,7 +591,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.terminalTheme = !m.terminalTheme
 		case "a":
 			m.form = &form{}
-			m.form.values[2], m.form.values[3] = "Övrigt", "15"
+			m.form.values[2], m.form.values[3] = "Övrigt", "15m"
 			if len(m.feeds) > 0 && m.view == feedView {
 				m.form.values[2] = m.feeds[m.feedIndex].category
 			}
@@ -619,7 +619,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "i":
 			if m.requireFeed() && len(m.feeds) > 0 {
 				m.form = &form{single: true, field: 3}
-				m.form.values[3] = strconv.FormatInt(m.feeds[m.feedIndex].interval, 10)
+				m.form.values[3] = formatInterval(m.feeds[m.feedIndex].interval)
 			}
 		case "h", "left", "esc":
 			if m.visual {
@@ -1052,9 +1052,9 @@ func (m *Model) saveForm() {
 	if category == "" {
 		category = "Övrigt"
 	}
-	interval, err := strconv.ParseInt(strings.TrimSpace(f.values[3]), 10, 64)
-	if (!f.single || f.field == 3) && (err != nil || interval < 1) {
-		f.err, f.field = "Ange intervallet i hela minuter, minst 1.", 3
+	interval, ok := parseInterval(f.values[3])
+	if (!f.single || f.field == 3) && !ok {
+		f.err, f.field = "Ange intervallet som t.ex. 30m, 2h, 1d eller 1w (minst 1 minut).", 3
 		return
 	}
 	switch {
@@ -1094,6 +1094,7 @@ func (m *Model) saveForm() {
 			f.err, f.field = "Kunde inte spara flödet: "+err.Error(), 0
 			return
 		}
+
 		m.feeds = append(m.feeds, subscription{id: id, interval: interval, name: name, url: address, category: category})
 		m.selectView(feedView, len(m.feeds)-1)
 		m.publish(event.Event{Type: event.FeedAdded, Feed: name, Category: category, Interval: interval})

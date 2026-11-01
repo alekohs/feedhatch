@@ -324,7 +324,7 @@ func TestViewsFitTerminal(t *testing.T) {
 
 func TestChangeInterval(t *testing.T) {
 	m := press(feedModel(t), "i")
-	if m.form == nil || m.form.values[3] != "15" {
+	if m.form == nil || m.form.values[3] != "15m" {
 		t.Fatal("i should open the interval form with the current value")
 	}
 	m = press(m, "ctrl+u")
