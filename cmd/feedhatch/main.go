@@ -25,6 +25,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "export" || os.Args[1] == "import") {
+		runTransfer(os.Args[1], os.Args[2:])
+		return
+	}
+
 	var daemon bool
 
 	mock := flag.Bool("mock", false, "run with sample data in a temporary database")
@@ -32,6 +37,10 @@ func main() {
 	logSize := flag.Int("log-size", 10, "rotate the TUI's log file at this size in MB, keeping one old file")
 	flag.BoolVar(&daemon, "daemon", false, "only fetch feeds on their intervals, without the TUI")
 	flag.BoolVar(&daemon, "d", false, "only fetch feeds on their intervals, without the TUI")
+	flag.Usage = func() {
+		fmt.Fprintln(flag.CommandLine.Output(), "usage: feedhatch [flags]\n       feedhatch export|import [-dev] <file>")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 
 	if daemon && *mock {
@@ -105,6 +114,64 @@ func runTUI(name string, mock bool, logSize int) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// runTransfer copies the database to or from a file, e.g. to move feedhatch to another computer.
+func runTransfer(cmd string, args []string) {
+	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
+	dev := fs.Bool("dev", false, "use the development database (feedhatch-dev)")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "usage: feedhatch %s [-dev] <file>\n", cmd)
+		fs.PrintDefaults()
+	}
+	_ = fs.Parse(args)
+	if fs.NArg() != 1 {
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	name := "feedhatch"
+	if *dev {
+		name = "feedhatch-dev"
+	}
+	dir, err := store.Dir(name)
+	if err != nil {
+		fail(err)
+	}
+	db, file := filepath.Join(dir, constants.FeedDb), fs.Arg(0)
+
+	switch cmd {
+	case "export":
+		if _, err := os.Stat(db); err != nil {
+			fail(fmt.Errorf("no database to export at %s", db))
+		}
+		st, err := store.Open(name)
+		if err != nil {
+			fail(err)
+		}
+		defer st.Close()
+		if err := st.Export(file); err != nil {
+			fail(err)
+		}
+		fmt.Printf("Exported %s to %s\n", db, file)
+	case "import":
+		if server.Running(name) {
+			fail(errors.New("feedhatch is running: stop the daemon (systemctl --user stop feedhatch) and close the TUI first"))
+		}
+		backup, err := store.Import(file, db)
+		if backup != "" {
+			fmt.Printf("Saved the previous database as %s\n", backup)
+		}
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("Imported %s into %s\n", file, db)
+	}
+}
+
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
 }
 
 func runDaemon(name string) {

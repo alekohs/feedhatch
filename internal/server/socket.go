@@ -36,6 +36,16 @@ func listen(path string) (net.Listener, error) {
 	return l, os.Chmod(path, 0o600)
 }
 
+// Running reports whether a feedhatch called name owns its socket right now.
+func Running(name string) bool {
+	conn, err := net.Dial("unix", SocketPath(name))
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 // SocketPath is where the feedhatch called name listens, e.g. feedhatch.sock or feedhatch-dev.sock.
 func SocketPath(name string) string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")

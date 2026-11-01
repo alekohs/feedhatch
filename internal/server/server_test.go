@@ -136,3 +136,20 @@ func TestDevNameKeepsItsOwnSocketAndDatabase(t *testing.T) {
 		t.Fatalf("the real database has %d feeds, want the dev feed kept out of it", len(feeds))
 	}
 }
+
+func TestRunningSeesTheSocketOwner(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	if Running("feedhatch") {
+		t.Fatal("nothing should be running yet")
+	}
+	s := startTest(t)
+	if !Running("feedhatch") || Running("feedhatch-dev") {
+		t.Fatal("Running should see only the feedhatch that owns its socket")
+	}
+	s.Close()
+	if Running("feedhatch") {
+		t.Fatal("Running should be false after Close")
+	}
+}

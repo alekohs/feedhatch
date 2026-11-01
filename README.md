@@ -12,6 +12,21 @@ make run-headless  # only fetch feeds, no TUI; logs in the terminal
 make test
 ```
 
+## Moving to another computer
+
+```sh
+feedhatch export feedhatch-backup.db   # on the old computer, also while it runs
+feedhatch import feedhatch-backup.db   # on the new one
+```
+
+The export holds everything: feeds, categories, intervals, saved articles and
+read state. Import checks that the file is a feedhatch export (and not from a
+newer feedhatch), saves the current database as `feeds.db.bak-<time>` next to
+it, and upgrades the imported copy to the current schema. Stop the daemon
+(`systemctl --user stop feedhatch`) and close the TUI before importing; import
+refuses to run while feedhatch is running. Add `-dev` to either command for the
+development data.
+
 ## Development
 
 `-dev` (or `make run-dev` / `make run-headless-dev`) uses
