@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"alekohs/feedhatch/internal/store"
@@ -89,6 +90,14 @@ func articles(result *gofeed.Feed) []store.Article {
 		}
 		if a.Content == "" {
 			a.Content = item.Description
+		}
+		if item.Image != nil {
+			a.Image = item.Image.URL
+		}
+		for _, e := range item.Enclosures {
+			if a.Image == "" && strings.HasPrefix(e.Type, "image/") {
+				a.Image = e.URL
+			}
 		}
 		if item.PublishedParsed != nil {
 			a.PublishedAt = *item.PublishedParsed

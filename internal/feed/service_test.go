@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mmcdole/gofeed"
+
 	"alekohs/feedhatch/internal/store"
 )
 
@@ -155,5 +157,22 @@ func TestUpdateFeeds(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Errorf("antal anrop = %d, vill ha 1 eftersom intervallet inte har passerat", requests)
+	}
+}
+
+func TestArticlesTakeTheImageFromTheEnclosure(t *testing.T) {
+	result, err := gofeed.NewParser().ParseString(`<?xml version="1.0"?>
+<rss version="2.0"><channel><title>T</title>
+<item><title>With image</title><guid>1</guid>
+<enclosure url="https://x.example/audio.mp3" type="audio/mpeg" length="0"/>
+<enclosure url="https://x.example/cover.png" type="image/png" length="0"/></item>
+<item><title>Without</title><guid>2</guid></item>
+</channel></rss>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := articles(result)
+	if got[0].Image != "https://x.example/cover.png" || got[1].Image != "" {
+		t.Fatalf("images = %q, %q", got[0].Image, got[1].Image)
 	}
 }

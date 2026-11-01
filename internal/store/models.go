@@ -11,6 +11,7 @@ type Article struct {
 	ID, FeedID        int64
 	GUID, Title, Link string
 	Content           string
+	Image             string // a cover image URL, e.g. from the item's enclosure
 	PublishedAt       time.Time
 	Read              bool
 }

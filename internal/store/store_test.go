@@ -23,8 +23,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("user_version = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("user_version = %d, want 2", version)
 	}
 }
 
@@ -178,5 +178,41 @@ func TestDeleteFeedRemovesArticles(t *testing.T) {
 	}
 	if articles != 0 {
 		t.Fatalf("got %d articles, want the feed's articles deleted with it", articles)
+	}
+}
+
+func TestSaveArticlesFillsInMissingImages(t *testing.T) {
+	s := openTest(t)
+	feedID, err := s.AddFeed(Feed{URL: "https://example.com/rss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveArticles(feedID, []Article{{GUID: "a"}, {GUID: "b", Image: "https://example.com/old.png"}}); err != nil {
+		t.Fatal(err)
+	}
+	articles, _ := s.Articles(feedID)
+	for _, a := range articles {
+		if err := s.SetRead(a.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	added, err := s.SaveArticles(feedID, []Article{
+		{GUID: "a", Image: "https://example.com/a.png"},
+		{GUID: "b", Image: "https://example.com/new.png"},
+	})
+	if err != nil || added != 0 {
+		t.Fatalf("added = %d, err = %v, want no new articles", added, err)
+	}
+	images := map[string]string{}
+	articles, _ = s.Articles(feedID)
+	for _, a := range articles {
+		images[a.GUID] = a.Image
+		if !a.Read {
+			t.Fatalf("%s lost its read state", a.GUID)
+		}
+	}
+	if images["a"] != "https://example.com/a.png" || images["b"] != "https://example.com/old.png" {
+		t.Fatalf("images = %v, want a filled in and b kept", images)
 	}
 }
