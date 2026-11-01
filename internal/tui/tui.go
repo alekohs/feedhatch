@@ -11,7 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"alekohs/feedhatch/internal/server"
+	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/store"
 )
 
@@ -44,7 +44,7 @@ type form struct {
 type Model struct {
 	store         *store.Store
 	updates       <-chan FetchedMsg
-	announce      func(server.Event)
+	announce      func(event.Event)
 	width, height int
 	feeds         []subscription
 	feedIndex     int
@@ -71,7 +71,7 @@ type FetchedMsg struct{ Err error }
 // New loads the feeds from st. Each FetchedMsg on updates reloads them, and announce
 // is called after every change the TUI saves, so other listeners hear about it.
 // Both may be nil.
-func New(st *store.Store, updates <-chan FetchedMsg, announce func(server.Event)) (Model, error) {
+func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event)) (Model, error) {
 	m := Model{store: st, updates: updates, announce: announce}
 	if err := m.load(); err != nil {
 		return Model{}, err
@@ -381,7 +381,7 @@ func (m *Model) markFeedRead() {
 		feed.articles[i].unread = false
 	}
 	m.status = fmt.Sprintf("Markerade %d artiklar i %s som lästa.", n, feed.name)
-	m.publish(server.Event{Type: "feed_read", Feed: feed.name})
+	m.publish(event.Event{Type: event.FeedRead, Feed: feed.name})
 }
 
 func (m *Model) deleteFeed() {
@@ -394,7 +394,7 @@ func (m *Model) deleteFeed() {
 	m.feedIndex, m.articleIndex = clamp(m.feedIndex, len(m.feeds)), 0
 	m.focus, m.reading, m.scroll, m.visual = feedsPanel, false, 0, false
 	m.status = "Tog bort " + feed.name + "."
-	m.publish(server.Event{Type: "feed_deleted", Feed: feed.name})
+	m.publish(event.Event{Type: event.FeedDeleted, Feed: feed.name})
 }
 
 func (m *Model) saveRead(a *article) {
@@ -402,14 +402,14 @@ func (m *Model) saveRead(a *article) {
 		m.status = "Kunde inte spara läsläget: " + err.Error()
 		return
 	}
-	e := server.Event{Type: "read", Feed: m.feeds[m.feedIndex].name, ArticleID: a.id, Article: a.title}
+	e := event.Event{Type: event.Read, Feed: m.feeds[m.feedIndex].name, ArticleID: a.id, Article: a.title}
 	if a.unread {
-		e.Type = "unread"
+		e.Type = event.Unread
 	}
 	m.publish(e)
 }
 
-func (m *Model) publish(e server.Event) {
+func (m *Model) publish(e event.Event) {
 	if m.announce != nil {
 		m.announce(e)
 	}
@@ -536,14 +536,14 @@ func (m *Model) saveForm() {
 			return
 		}
 		m.feeds[m.feedIndex].category = category
-		m.publish(server.Event{Type: "category", Feed: m.feeds[m.feedIndex].name, Category: category})
+		m.publish(event.Event{Type: event.Category, Feed: m.feeds[m.feedIndex].name, Category: category})
 	case f.single:
 		if err := m.store.SetInterval(m.feeds[m.feedIndex].id, interval); err != nil {
 			f.err = "Kunde inte spara intervallet: " + err.Error()
 			return
 		}
 		m.feeds[m.feedIndex].interval = interval
-		m.publish(server.Event{Type: "interval", Feed: m.feeds[m.feedIndex].name, Interval: interval})
+		m.publish(event.Event{Type: event.Interval, Feed: m.feeds[m.feedIndex].name, Interval: interval})
 	default:
 		address := strings.TrimSpace(f.values[0])
 		u, err := url.Parse(address)
@@ -568,7 +568,7 @@ func (m *Model) saveForm() {
 		}
 		m.feeds = append(m.feeds, subscription{id: id, interval: interval, name: name, url: address, category: category})
 		m.feedIndex, m.articleIndex = len(m.feeds)-1, 0
-		m.publish(server.Event{Type: "feed_added", Feed: name, Category: category, Interval: interval})
+		m.publish(event.Event{Type: event.FeedAdded, Feed: name, Category: category, Interval: interval})
 	}
 	m.form, m.focus, m.reading, m.scroll, m.visual = nil, feedsPanel, false, 0, false
 }

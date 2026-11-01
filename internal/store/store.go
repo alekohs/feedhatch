@@ -36,12 +36,22 @@ func OpenMock() (*Store, error) {
 
 }
 
-func Open() (*Store, error) {
+// Dir is the data directory of the feedhatch called name, e.g. ~/.cache/feedhatch.
+func Dir(name string) (string, error) {
 	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name), nil
+}
+
+// Open opens feeds.db in the data directory of the feedhatch called name.
+func Open(name string) (*Store, error) {
+	dir, err := Dir(name)
 	if err != nil {
 		return nil, err
 	}
-	return OpenPath(filepath.Join(dir, "feedhatch", "feeds.db"))
+	return OpenPath(filepath.Join(dir, "feeds.db"))
 }
 
 func OpenPath(path string) (*Store, error) {

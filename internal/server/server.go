@@ -4,30 +4,41 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"sync"
 
+	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/store"
 	"alekohs/feedhatch/internal/worker"
 )
+
+type Options struct {
+	// Name picks the data directory and socket: "feedhatch", or "feedhatch-dev" to keep
+	// development away from the real data.
+	Name string
+	// Mock uses sample data in a temporary database and starts neither socket nor worker.
+	Mock   bool
+	Logger *slog.Logger
+}
 
 type Server struct {
 	Store *store.Store
 	// Serving is false when another feedhatch already owns the socket and runs the worker.
 	Serving bool
 
-	logger      *log.Logger
+	logger      *slog.Logger
 	listener    net.Listener
 	stop        context.CancelFunc
 	mu          sync.Mutex
 	subscribers map[*subscriber]struct{}
 }
 
-func Start(ctx context.Context, mock bool, logger *log.Logger) (*Server, error) {
-	logger.Println("Starting server")
+func Start(ctx context.Context, opts Options) (*Server, error) {
+	logger := opts.Logger.With("component", "server")
+	logger.Info("starting", "name", opts.Name, "mock", opts.Mock)
 
-	st, err := openStore(mock, logger)
+	st, err := openStore(opts)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -36,13 +47,14 @@ func Start(ctx context.Context, mock bool, logger *log.Logger) (*Server, error) 
 	s := &Server{Store: st, logger: logger, stop: stop, subscribers: make(map[*subscriber]struct{})}
 
 	// Mock feeds point at real URLs; fetching them would mix live articles into the sample data.
-	if mock {
+	if opts.Mock {
 		return s, nil
 	}
 
-	l, err := listen(socketPath())
+	path := SocketPath(opts.Name)
+	l, err := listen(path)
 	if errors.Is(err, ErrRunning) {
-		logger.Println("Another feedhatch is running, only listening for its updates")
+		logger.Info("another feedhatch owns the socket, only listening for its updates", "socket", path)
 		return s, nil
 	}
 	if err != nil {
@@ -54,12 +66,12 @@ func Start(ctx context.Context, mock bool, logger *log.Logger) (*Server, error) 
 	go s.serve(l)
 	go worker.Run(ctx, st, s.report, s.roundDone)
 
-	logger.Println("Server has started")
+	logger.Info("started", "socket", path)
 	return s, nil
 }
 
 func (s *Server) Close() {
-	s.logger.Println("Closing server")
+	s.logger.Info("closing")
 	s.stop()
 	if s.listener != nil {
 		s.listener.Close()
@@ -73,28 +85,25 @@ func (s *Server) GetStatus() string {
 
 func (s *Server) report(feed string, added int, err error) {
 	if err != nil {
-		s.logger.Printf("%s: %v", feed, err)
-		s.broadcast(Event{Type: "error", Feed: feed, Error: err.Error()})
+		s.logger.Warn("fetch failed", "feed", feed, "err", err)
+		s.broadcast(event.Event{Type: event.Failed, Feed: feed, Error: err.Error()})
 		return
 	}
-	s.logger.Printf("%s: %d new articles", feed, added)
-	s.broadcast(Event{Type: "feed", Feed: feed, New: added})
+	s.logger.Info("fetched feed", "feed", feed, "new", added)
+	s.broadcast(event.Event{Type: event.Fetched, Feed: feed, New: added})
 }
 
 func (s *Server) roundDone(err error) {
-	e := Event{Type: "round"}
+	e := event.Event{Type: event.Round}
 	if err != nil {
 		e.Error = err.Error()
 	}
 	s.broadcast(e)
 }
 
-func openStore(mock bool, logger *log.Logger) (*store.Store, error) {
-	if !mock {
-		logger.Println("Open real db")
-		return store.Open()
+func openStore(opts Options) (*store.Store, error) {
+	if opts.Mock {
+		return store.OpenMock()
 	}
-
-	logger.Println("Open mocked db")
-	return store.OpenMock()
+	return store.Open(opts.Name)
 }

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"alekohs/feedhatch/internal/event"
 )
 
 var ErrRunning = errors.New("feedhatch is already running")
@@ -34,13 +36,14 @@ func listen(path string) (net.Listener, error) {
 	return l, os.Chmod(path, 0o600)
 }
 
-func socketPath() string {
+// SocketPath is where the feedhatch called name listens, e.g. feedhatch.sock or feedhatch-dev.sock.
+func SocketPath(name string) string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir == "" {
 		dir = os.TempDir()
 	}
 
-	return filepath.Join(dir, "feedhatch.sock")
+	return filepath.Join(dir, name+".sock")
 }
 
 func (s *Server) serve(l net.Listener) {
@@ -73,9 +76,9 @@ func (s *Server) add(conn net.Conn) {
 	go func() {
 		scanner := bufio.NewScanner(conn)
 		for scanner.Scan() {
-			var e Event
-			if json.Unmarshal(scanner.Bytes(), &e) == nil && clientEvents[e.Type] {
-				s.logger.Printf("%s: %s", e.Feed, e.Type)
+			var e event.Event
+			if json.Unmarshal(scanner.Bytes(), &e) == nil && event.FromClient(e.Type) {
+				s.logger.Info("client event", "type", e.Type, "feed", e.Feed)
 				s.broadcast(e)
 			}
 		}
@@ -97,25 +100,25 @@ type Client struct {
 	conn net.Conn
 }
 
-// Connect passes every event from the socket to handle until ctx is cancelled,
-// reconnecting when the server goes away. Each (re)connect is reported as a
-// "connected" event, since events sent while disconnected are lost.
-func Connect(ctx context.Context, handle func(Event)) *Client {
+// Connect passes every event from the socket of the feedhatch called name to handle
+// until ctx is cancelled, reconnecting when the server goes away. Each (re)connect is
+// reported as an event.Connected, since events sent while disconnected are lost.
+func Connect(ctx context.Context, name string, handle func(event.Event)) *Client {
 	c := &Client{}
-	go c.run(ctx, handle)
+	go c.run(ctx, SocketPath(name), handle)
 	return c
 }
 
-func (c *Client) run(ctx context.Context, handle func(Event)) {
+func (c *Client) run(ctx context.Context, path string, handle func(event.Event)) {
 	for {
-		if conn, err := net.Dial("unix", socketPath()); err == nil {
+		if conn, err := net.Dial("unix", path); err == nil {
 			c.setConn(conn)
 			stopClose := context.AfterFunc(ctx, func() { conn.Close() })
-			handle(Event{Type: "connected", Timestamp: time.Now()})
+			handle(event.Event{Type: event.Connected, Timestamp: time.Now()})
 
 			scanner := bufio.NewScanner(conn)
 			for scanner.Scan() {
-				var e Event
+				var e event.Event
 				if json.Unmarshal(scanner.Bytes(), &e) == nil {
 					handle(e)
 				}
@@ -141,7 +144,7 @@ func (c *Client) setConn(conn net.Conn) {
 }
 
 // Send publishes e to every listener through the server. It is dropped while disconnected.
-func (c *Client) Send(e Event) {
+func (c *Client) Send(e event.Event) {
 	line, _ := json.Marshal(e)
 	line = append(line, '\n')
 

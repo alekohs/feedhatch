@@ -12,6 +12,33 @@ make run-headless  # only fetch feeds, no TUI; logs in the terminal
 make test
 ```
 
+## Development
+
+`-dev` (or `make run-dev` / `make run-headless-dev`) uses
+`~/.cache/feedhatch-dev/` and `$XDG_RUNTIME_DIR/feedhatch-dev.sock` instead of
+the real database and socket, so it can run next to your real feedhatch without
+touching its data. `-mock` can't be combined with `-daemon`, since mock mode
+never fetches.
+
+## Logs
+
+Every line shows the source file of the log call and its component:
+
+```
+12:19:01 INFO  <server/server.go:92> server: fetched feed feed="Arch Linux" new=3
+12:19:02 WARN  <server/server.go:88> server: fetch failed feed=Example err="failed to detect feed type"
+```
+
+The daemon logs to stderr, with colored levels in a terminal and without the
+time when the systemd journal adds its own. The TUI writes to `feedhatch.log`
+in its data directory, so it never draws over the screen. The file is rotated
+at 10 MB, keeping one old file (`-log-size` changes the limit, in MB):
+
+```sh
+tail -F ~/.cache/feedhatch/feedhatch.log
+make dev-logs   # the same for -dev
+```
+
 ## Running as a service
 
 `make install-service` builds feedhatch into `~/.local/bin`, installs

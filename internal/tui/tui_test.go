@@ -11,7 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"alekohs/feedhatch/internal/server"
+	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/store"
 )
 
@@ -357,8 +357,8 @@ func TestFetchedMsgReloadsAndKeepsSelection(t *testing.T) {
 
 func TestSavedChangesAreAnnounced(t *testing.T) {
 	m := sizedModel(t)
-	var events []server.Event
-	m.announce = func(e server.Event) { events = append(events, e) }
+	var events []event.Event
+	m.announce = func(e event.Event) { events = append(events, e) }
 
 	m = press(m, "l", "enter", "h", "m") // open (read), then toggle back to unread
 	m = press(m, "c", "ctrl+u")
@@ -387,8 +387,8 @@ func TestSavedChangesAreAnnounced(t *testing.T) {
 
 func TestDeleteFeedNeedsConfirmation(t *testing.T) {
 	m := sizedModel(t)
-	var events []server.Event
-	m.announce = func(e server.Event) { events = append(events, e) }
+	var events []event.Event
+	m.announce = func(e event.Event) { events = append(events, e) }
 	initial := len(m.feeds)
 	name := m.feeds[m.feedIndex].name
 
@@ -421,8 +421,8 @@ func TestDeleteFeedNeedsConfirmation(t *testing.T) {
 
 func TestMarkFeedRead(t *testing.T) {
 	m := sizedModel(t)
-	var events []server.Event
-	m.announce = func(e server.Event) { events = append(events, e) }
+	var events []event.Event
+	m.announce = func(e event.Event) { events = append(events, e) }
 	feed := m.feeds[m.feedIndex]
 	if unreadCount(feed) == 0 {
 		t.Fatal("the first mock feed should start with unread articles")

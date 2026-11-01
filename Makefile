@@ -1,4 +1,4 @@
-.PHONY: help clean clean-db run run-headless run-mock install-service service-logs test format format-check vet lint package
+.PHONY: help clean clean-db run run-dev run-headless run-headless-dev run-mock dev-logs install-service service-logs test format format-check vet lint package
 
 # amd64, arm64
 ARCH ?= amd64
@@ -22,11 +22,20 @@ clean-db: ## Clean db from cache
 run: ## Run application
 	@go run ./cmd/feedhatch/main.go
 
+run-dev: ## Run application with the separate development database and socket
+	@go run ./cmd/feedhatch/main.go -dev
+
 run-headless: ## Fetch feeds without the TUI and show logs in the terminal
 	@go run ./cmd/feedhatch/main.go -d
 
+run-headless-dev: ## Fetch feeds without the TUI, using the development database and socket
+	@go run ./cmd/feedhatch/main.go -d -dev
+
 run-mock: ## Run application with sample data in a temporary database
 	@go run ./cmd/feedhatch/main.go -mock
+
+dev-logs: ## Follow the log file written by the TUI in development mode
+	@tail -F ~/.cache/feedhatch-dev/feedhatch.log
 
 install-service: ## Install to ~/.local/bin and (re)start the systemd user service
 	@go build -o ${HOME}/.local/bin/feedhatch ./cmd/feedhatch
