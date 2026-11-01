@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
@@ -64,6 +65,34 @@ func Transmit(img image.Image, id int) (string, error) {
 	})
 	return buf.String(), err
 }
+
+// Animate adds the frames after the first to image id, sent by Transmit, and starts
+// looping them; each frame is shown for its delay. Terminals without animation support
+// keep showing the first frame.
+func Animate(id int, frames []image.Image, delays []time.Duration) (string, error) {
+	var b strings.Builder
+	for i := 1; i < len(frames); i++ {
+		err := kitty.EncodeGraphics(&b, frames[i], &kitty.Options{
+			Action:         kitty.Frame,
+			Quiet:          2,
+			ID:             id,
+			Z:              milliseconds(delays[i]), // in a frame command, z is the frame's delay
+			Format:         kitty.PNG,
+			Transmission:   kitty.Direct,
+			Chunk:          true,
+			ChunkFormatter: passthrough,
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	b.WriteString(passthrough(ansi.KittyGraphics(nil, "a=a", fmt.Sprintf("i=%d", id), "r=1",
+		fmt.Sprintf("z=%d", milliseconds(delays[0])), "q=2")))
+	b.WriteString(passthrough(ansi.KittyGraphics(nil, "a=a", fmt.Sprintf("i=%d", id), "s=3", "v=1", "q=2")))
+	return b.String(), nil
+}
+
+func milliseconds(d time.Duration) int { return max(1, int(d.Milliseconds())) }
 
 // Place makes image id fill cols×rows cells wherever its placeholders appear,
 // replacing an earlier size.

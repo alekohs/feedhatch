@@ -239,7 +239,9 @@ In kitty and Ghostty, images in articles are shown in the reader (using the kitt
 graphics protocol), including the cover image many feeds attach to each item.
 They're downloaded when you open an article and cached in
 `~/.cache/feedhatch/images`, which is kept below 200 MB by removing the least
-recently used images when feedhatch starts; tiny tracking pixels are skipped. `I` turns images
+recently used images when feedhatch starts; tiny tracking pixels are skipped. Animated
+GIFs play in terminals that support animation (kitty); others show the first
+frame. `I` turns images
 off and on, and the choice is remembered. In other terminals feedhatch never downloads images and shows
 `[Bild: <alt text>]` instead.
 

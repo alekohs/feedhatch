@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	_ "image/gif"
+	"image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -54,6 +54,11 @@ func Load(src, dir string) (image.Image, error) {
 		}
 	}
 
+	if bytes.HasPrefix(data, []byte("GIF")) {
+		if g, err := gif.DecodeAll(bytes.NewReader(data)); err == nil && len(g.Image) > 1 {
+			return animation(g)
+		}
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decode %s: %w", src, err)
@@ -62,12 +67,76 @@ func Load(src, dir string) (image.Image, error) {
 	if b.Dx() <= 2 || b.Dy() <= 2 {
 		return nil, ErrTiny
 	}
-	if b.Dx() > maxWidth {
-		scaled := image.NewRGBA(image.Rect(0, 0, maxWidth, b.Dy()*maxWidth/b.Dx()))
-		draw.ApproxBiLinear.Scale(scaled, scaled.Bounds(), img, b, draw.Src, nil)
-		img = scaled
+	return fit(img), nil
+}
+
+// fit scales an image down to maxWidth.
+func fit(img image.Image) image.Image {
+	b := img.Bounds()
+	if b.Dx() <= maxWidth {
+		return img
 	}
-	return img, nil
+	scaled := image.NewRGBA(image.Rect(0, 0, maxWidth, b.Dy()*maxWidth/b.Dx()))
+	draw.ApproxBiLinear.Scale(scaled, scaled.Bounds(), img, b, draw.Src, nil)
+	return scaled
+}
+
+// Animated is an animated image. It is its first frame, so code that shows still
+// images shows that; Frames are all frames, each shown for its Delay.
+type Animated struct {
+	image.Image
+	Frames []image.Image
+	Delays []time.Duration
+}
+
+// maxAnimationPixels caps an animation's frames, so a large or long GIF can't use
+// hundreds of megabytes; frames beyond it are dropped.
+const maxAnimationPixels = 40_000_000
+
+// animation turns a GIF's frames, which often only update part of the picture, into
+// complete frames.
+func animation(g *gif.GIF) (image.Image, error) {
+	bounds := image.Rect(0, 0, g.Config.Width, g.Config.Height)
+	if bounds.Dx() <= 2 || bounds.Dy() <= 2 {
+		return nil, ErrTiny
+	}
+	canvas := image.NewRGBA(bounds)
+	a := &Animated{}
+	pixels := 0
+	for i, frame := range g.Image {
+		disposal := byte(0)
+		if i < len(g.Disposal) {
+			disposal = g.Disposal[i]
+		}
+		var previous *image.RGBA
+		if disposal == gif.DisposalPrevious {
+			previous = image.NewRGBA(bounds)
+			draw.Draw(previous, bounds, canvas, image.Point{}, draw.Src)
+		}
+		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
+
+		full := image.NewRGBA(bounds)
+		draw.Draw(full, bounds, canvas, image.Point{}, draw.Src)
+		scaled := fit(full)
+		if pixels += scaled.Bounds().Dx() * scaled.Bounds().Dy(); pixels > maxAnimationPixels && len(a.Frames) > 0 {
+			break
+		}
+		a.Frames = append(a.Frames, scaled)
+		delay := 100 * time.Millisecond // browsers' choice for GIFs without a usable delay
+		if i < len(g.Delay) && g.Delay[i] > 1 {
+			delay = time.Duration(g.Delay[i]) * 10 * time.Millisecond
+		}
+		a.Delays = append(a.Delays, delay)
+
+		switch disposal {
+		case gif.DisposalBackground:
+			draw.Draw(canvas, frame.Bounds(), image.Transparent, image.Point{}, draw.Src)
+		case gif.DisposalPrevious:
+			canvas = previous
+		}
+	}
+	a.Image = a.Frames[0]
+	return a, nil
 }
 
 func download(src string) ([]byte, error) {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/color"
+	"image/gif"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -247,4 +249,34 @@ func TestReaderKeepsItsPlaceWhenAnImageAboveLoads(t *testing.T) {
 	if top > 0 && m.scroll <= top {
 		t.Fatalf("scroll = %d, want it moved down from %d with the inserted rows", m.scroll, top)
 	}
+}
+
+func TestAnimatedImagesSendTheirFrames(t *testing.T) {
+	var buf bytes.Buffer
+	palette := color.Palette{color.Black, color.White}
+	g := &gif.GIF{Config: image.Config{Width: 400, Height: 200}}
+	for i := range 3 {
+		frame := image.NewPaletted(image.Rect(0, 0, 400, 200), palette)
+		frame.SetColorIndex(i, i, 1)
+		g.Image, g.Delay = append(g.Image, frame), append(g.Delay, 10)
+	}
+	if err := gif.EncodeAll(&buf, g); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(buf.Bytes())
+	}))
+	t.Cleanup(server.Close)
+
+	m, cmd := imageModel(t, server.URL+"/anim.gif", true)
+	for _, msg := range run(cmd) {
+		if loaded, ok := msg.(imageLoadedMsg); ok {
+			_, next := m.Update(loaded)
+			if out := rawOutput(run(next)); strings.Count(out, "a=f") != 2 || !strings.Contains(out, "s=3") {
+				t.Fatalf("an animated image should send its other frames and start looping")
+			}
+			return
+		}
+	}
+	t.Fatal("the image should have loaded")
 }

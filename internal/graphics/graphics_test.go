@@ -4,6 +4,7 @@ import (
 	"image"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi/kitty"
@@ -85,6 +86,23 @@ func TestKittyTypeFromTmux(t *testing.T) {
 	} {
 		if got := kittyType(termType); got != want {
 			t.Errorf("kittyType(%q) = %v, want %v", termType, got, want)
+		}
+	}
+}
+
+func TestAnimateSendsFramesAndStartsTheLoop(t *testing.T) {
+	t.Setenv("TMUX", "")
+	frames := []image.Image{image.NewRGBA(image.Rect(0, 0, 4, 4)), image.NewRGBA(image.Rect(0, 0, 4, 4)), image.NewRGBA(image.Rect(0, 0, 4, 4))}
+	seq, err := Animate(30, frames, []time.Duration{50 * time.Millisecond, 120 * time.Millisecond, 80 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(seq, "a=f"); n != 2 {
+		t.Fatalf("got %d frame commands, want 2 (the first frame is sent by Transmit)", n)
+	}
+	for _, want := range []string{"z=120", "z=80", "a=a,i=30,r=1,z=50", "a=a,i=30,s=3,v=1"} {
+		if !strings.Contains(seq, want) {
+			t.Fatalf("missing %q in %q", want, seq)
 		}
 	}
 }

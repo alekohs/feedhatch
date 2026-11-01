@@ -186,6 +186,11 @@ func (m Model) imageCmds() tea.Cmd {
 		var seq string
 		if !e.sent {
 			transmit, err := graphics.Transmit(e.img, e.id)
+			if anim, ok := e.img.(*images.Animated); ok && err == nil {
+				var frames string
+				frames, err = graphics.Animate(e.id, anim.Frames, anim.Delays)
+				transmit += frames
+			}
 			if err != nil {
 				e.img, e.err = nil, err
 				continue
