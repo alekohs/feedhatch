@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -39,6 +40,9 @@ func Import(src, dst string) (backup string, err error) {
 		current.Close()
 		if err != nil {
 			return "", fmt.Errorf("back up %s: %w", dst, err)
+		}
+		if err := pruneBackups(dst); err != nil {
+			return backup, err
 		}
 		for _, p := range []string{dst, dst + "-wal", dst + "-shm"} {
 			if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -101,6 +105,25 @@ func checkExport(db *sql.DB, src string) error {
 	var check string
 	if err := db.QueryRow("PRAGMA quick_check").Scan(&check); err != nil || check != "ok" {
 		return fmt.Errorf("%s is damaged: %s %v", src, check, err)
+	}
+	return nil
+}
+
+// keepBackups is how many import backups are kept next to the database.
+const keepBackups = 3
+
+// pruneBackups deletes all but the newest import backups of dst. Their names end in
+// a timestamp, so sorting by name sorts them by age.
+func pruneBackups(dst string) error {
+	backups, err := filepath.Glob(dst + ".bak-*")
+	if err != nil {
+		return err
+	}
+	sort.Strings(backups)
+	for _, old := range backups[:max(0, len(backups)-keepBackups)] {
+		if err := os.Remove(old); err != nil {
+			return err
+		}
 	}
 	return nil
 }

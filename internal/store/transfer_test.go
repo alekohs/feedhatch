@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -146,5 +147,40 @@ func TestImportRejectsWhatIsNotAFeedhatchExport(t *testing.T) {
 	}
 	if _, err := os.Stat(dst); err == nil {
 		t.Fatal("a rejected import must not create the database")
+	}
+}
+
+func TestImportKeepsOnlyTheNewestBackups(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "export.db")
+	dst := filepath.Join(dir, "data", "feeds.db")
+	s := openTest(t)
+	if err := s.Export(src); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Import(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	for _, stamp := range []string{"20260101-000000", "20260102-000000", "20260103-000000", "20260104-000000"} {
+		if err := os.WriteFile(dst+".bak-"+stamp, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	backup, err := Import(src, dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, _ := filepath.Glob(dst + ".bak-*")
+	if len(left) != keepBackups {
+		t.Fatalf("backups = %v, want the %d newest", left, keepBackups)
+	}
+	for _, name := range left {
+		if strings.Contains(name, "20260101") || strings.Contains(name, "20260102") {
+			t.Fatalf("old backup %s should be deleted", name)
+		}
+	}
+	if !slices.Contains(left, backup) {
+		t.Fatal("the backup just made must be kept")
 	}
 }
