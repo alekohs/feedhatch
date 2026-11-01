@@ -63,7 +63,15 @@ install_arch() {
     curl -fsSL "https://raw.githubusercontent.com/$repo/main/packaging/arch/PKGBUILD" -o PKGBUILD
   fi
   sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
-  makepkg --syncdeps --install --clean
+  # Piped through curl, stdin is the script itself, so pacman's prompts would read
+  # end-of-input and abort; answer them from the terminal instead.
+  if [[ -t 0 ]]; then
+    makepkg --syncdeps --install --clean
+  elif (exec </dev/tty) 2>/dev/null; then
+    makepkg --syncdeps --install --clean </dev/tty
+  else
+    makepkg --syncdeps --install --clean --noconfirm
+  fi
 }
 
 install_deb() {
