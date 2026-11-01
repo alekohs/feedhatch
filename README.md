@@ -133,7 +133,7 @@ previews the selected article without marking it read; opening it with `enter`,
 | `D` | Delete the selected feed and its articles; `y` confirms, any other key cancels |
 | `m` | Toggle read/unread for the selected article |
 | `r` | Reload the lists from the database |
-| `t` | Toggle base theme/terminal colors |
+| `t` | Toggle terminal colors (default)/base theme |
 | `?` | Show/close help |
 | `!` | Show/close the log page (the end of `feedhatch.log`), re-read every second while open; at the end it follows new lines |
 | `q` / `Ctrl+c` | Quit (`Ctrl+c` also works in forms) |
@@ -161,8 +161,8 @@ keeps the previous query and cursor position. `?` still opens help.
 
 ## Colors and clipboard
 
-The base theme is dark with thin borders and a teal focus accent. The terminal
-theme inherits the terminal's default background and text color and uses its
+feedhatch starts in the terminal theme. The base theme (`t`) is dark with thin
+borders and a teal focus accent. The terminal theme inherits the terminal's default background and text color and uses its
 ANSI palette for accents. It therefore follows, for example, your Ghostty
 configuration, even with a light theme. Focus is also shown with `>` and bold.
 

@@ -119,7 +119,7 @@ func TestFilterInputDoesNotRunShortcuts(t *testing.T) {
 		}
 		m = updated.(Model)
 	}
-	if m.filter != "qDjmArt?" || m.pendingDelete || m.pendingReadAll || m.help || m.terminalTheme || m.status != "" {
+	if m.filter != "qDjmArt?" || m.pendingDelete || m.pendingReadAll || m.help || !m.terminalTheme || m.status != "" {
 		t.Fatalf("shortcuts leaked out of the input: %+v", m.filter)
 	}
 	if _, cmd := m.Update(keyMessage("ctrl+c")); cmd == nil {

@@ -213,7 +213,7 @@ func TestFormHandlesUnicodeAndDoesNotRunShortcuts(t *testing.T) {
 	m := press(sizedModel(t), "a", "enter")
 	m = paste(m, "Åäö")
 	m = press(m, "backspace", "q", "t", "v")
-	if m.form.values[1] != "Åäqtv" || m.terminalTheme || m.visual {
+	if m.form.values[1] != "Åäqtv" || !m.terminalTheme || m.visual {
 		t.Fatalf("form input triggered a shortcut or damaged Unicode: %+v", m.form)
 	}
 	m = paste(m, "\x1b\n\t")
@@ -227,14 +227,18 @@ func TestFormHandlesUnicodeAndDoesNotRunShortcuts(t *testing.T) {
 }
 
 func TestTerminalThemeInheritsTerminalDefaults(t *testing.T) {
-	m := press(sizedModel(t), "t")
+	m := sizedModel(t)
 	v := m.View()
 	if v.BackgroundColor != nil || v.ForegroundColor != nil || !m.terminalTheme {
-		t.Fatal("terminal theme must inherit terminal foreground and background")
+		t.Fatal("the default terminal theme must inherit terminal foreground and background")
 	}
 	m = press(m, "t")
 	if m.View().BackgroundColor == nil || m.terminalTheme {
 		t.Fatal("base theme should provide its own background")
+	}
+	m = press(m, "t")
+	if !m.terminalTheme {
+		t.Fatal("t should switch back to the terminal theme")
 	}
 }
 

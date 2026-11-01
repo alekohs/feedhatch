@@ -106,7 +106,7 @@ type FetchedMsg struct{ Err error }
 // is called after every change the TUI saves, so other listeners hear about it.
 // mock marks the session as sample data. Both updates and announce may be nil.
 func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event), mock bool, logPath string) (Model, error) {
-	m := Model{store: st, updates: updates, announce: announce, mock: mock, logPath: logPath}
+	m := Model{store: st, updates: updates, announce: announce, mock: mock, logPath: logPath, terminalTheme: true}
 	if err := m.load(); err != nil {
 		return Model{}, err
 	}
