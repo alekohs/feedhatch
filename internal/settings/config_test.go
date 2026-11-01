@@ -30,3 +30,30 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
+
+func TestEnsureCreatesTheFileOnlyOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "feedhatch", "settings.json")
+	if err := Ensure(path); err != nil {
+		t.Fatal(err)
+	}
+	if c := Load(path); !c.Notifications {
+		t.Fatal("a new settings file should hold the defaults")
+	}
+	if err := (Config{SidebarWidth: 30}).Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(path); err != nil {
+		t.Fatal(err)
+	}
+	if c := Load(path); c.SidebarWidth != 30 {
+		t.Fatal("an existing settings file must be left alone")
+	}
+}
+
+func TestLoadDoesNotWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	Load(path)
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("Load should only read")
+	}
+}

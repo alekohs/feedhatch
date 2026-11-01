@@ -4,6 +4,7 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -24,6 +25,15 @@ func Load(path string) Config {
 		_ = json.Unmarshal(data, &c)
 	}
 	return c
+}
+
+// Ensure creates the settings file with the defaults when it doesn't exist yet, so
+// users can find it and edit it.
+func Ensure(path string) error {
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return Load(path).Save(path)
 }
 
 // Save writes the settings through a temporary file, so a crash can't leave a

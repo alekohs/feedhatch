@@ -22,6 +22,7 @@ import (
 	"alekohs/feedhatch/internal/graphics"
 	"alekohs/feedhatch/internal/images"
 	"alekohs/feedhatch/internal/server"
+	"alekohs/feedhatch/internal/settings"
 	"alekohs/feedhatch/internal/store"
 	"alekohs/feedhatch/internal/tui"
 )
@@ -72,61 +73,38 @@ func main() {
 }
 
 func runTUI(name string, mock bool, logSize int) {
-	// Log lines would draw over the TUI, so they go to a file; errors also reach the status bar.
-	logPath, err := logFilePath(name)
+	logger, logPath, logFile, err := tuiLogger(name, logSize)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fail(err)
 	}
-	logFile := &lumberjack.Logger{Filename: logPath, MaxSize: logSize, MaxBackups: 1}
 	defer logFile.Close()
-	logger := newLogger(logFile, time.DateTime)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	if !mock {
 		if err := store.CreateWithExamples(name); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fail(err)
 		}
 	}
-	settingsPath := filepath.Join(filepath.Dir(logPath), "settings.json")
+	settingsPath, err := settingsPathFor(name)
+	if err != nil {
+		fail(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	srv, err := server.Start(ctx, server.Options{Name: name, Mock: mock, Logger: logger, SettingsPath: settingsPath})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fail(err)
 	}
 	defer srv.Close()
 
-	// The TUI talks to the socket whether this process or a daemon runs the worker:
-	// it reloads on events and announces its own changes to other listeners.
 	var updates chan tui.FetchedMsg
 	var announce func(event.Event)
 	if !mock {
-		updates = make(chan tui.FetchedMsg, 1)
-		client := server.Connect(ctx, name, func(e event.Event) {
-			if e.Type == event.Fetched || e.Type == event.Failed {
-				return // an event.Round follows once all feeds are fetched
-			}
-			msg := tui.FetchedMsg{}
-			if e.Error != "" {
-				msg.Err = errors.New(e.Error)
-			}
-			select {
-			case updates <- msg:
-			default: // a reload is already pending
-			}
-		})
-		announce = client.Send
+		updates, announce = connectTUI(ctx, name)
 	}
 
 	imageDir := filepath.Join(filepath.Dir(logPath), "images")
-	go func() {
-		if err := images.Prune(imageDir, images.MaxCache); err != nil {
-			logger.Warn("could not prune the image cache", "err", err)
-		}
-	}()
+	go pruneImages(imageDir, logger)
 
 	model, err := tui.New(srv.Store, updates, announce, tui.Config{
 		Mock:         mock,
@@ -136,14 +114,60 @@ func runTUI(name string, mock bool, logSize int) {
 		Images:       graphics.Supported(),
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fail(err)
 	}
+	if _, err := tea.NewProgram(model).Run(); err != nil {
+		fail(err)
+	}
+}
 
-	p := tea.NewProgram(model)
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+// tuiLogger logs to a file, since log lines would draw over the TUI; errors also reach
+// the status bar. The file is rotated at logSize MB with one old file kept.
+func tuiLogger(name string, logSize int) (*slog.Logger, string, io.Closer, error) {
+	logPath, err := logFilePath(name)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	logFile := &lumberjack.Logger{Filename: logPath, MaxSize: logSize, MaxBackups: 1}
+	return newLogger(logFile, time.DateTime), logPath, logFile, nil
+}
+
+// settingsPathFor is the settings file of the feedhatch called name, in the user's
+// config directory (e.g. ~/.config/feedhatch/settings.json), created on first start.
+// The TUI and the daemon share it, so Alt+b in the TUI also silences the daemon.
+func settingsPathFor(name string) (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, name, constants.SettingsFile)
+	return path, settings.Ensure(path)
+}
+
+// connectTUI connects to the socket, whether this process or a daemon runs the worker:
+// events arrive on updates so the TUI reloads, and announce tells other listeners about
+// the TUI's own changes.
+func connectTUI(ctx context.Context, name string) (updates chan tui.FetchedMsg, announce func(event.Event)) {
+	updates = make(chan tui.FetchedMsg, 1)
+	client := server.Connect(ctx, name, func(e event.Event) {
+		if e.Type == event.Fetched || e.Type == event.Failed {
+			return // an event.Round follows once all feeds are fetched
+		}
+		msg := tui.FetchedMsg{}
+		if e.Error != "" {
+			msg.Err = errors.New(e.Error)
+		}
+		select {
+		case updates <- msg:
+		default: // a reload is already pending
+		}
+	})
+	return updates, client.Send
+}
+
+func pruneImages(dir string, logger *slog.Logger) {
+	if err := images.Prune(dir, images.MaxCache); err != nil {
+		logger.Warn("could not prune the image cache", "err", err)
 	}
 }
 
@@ -211,16 +235,16 @@ func runDaemon(name string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	dir, err := store.Dir(name)
-	if err != nil {
-		logger.Error("could not start", "err", err)
-		os.Exit(1)
-	}
 	if err := store.CreateWithExamples(name); err != nil {
 		logger.Error("could not create the database", "err", err)
 		os.Exit(1)
 	}
-	srv, err := server.Start(ctx, server.Options{Name: name, Logger: logger, SettingsPath: filepath.Join(dir, "settings.json")})
+	settingsPath, err := settingsPathFor(name)
+	if err != nil {
+		logger.Error("could not start", "err", err)
+		os.Exit(1)
+	}
+	srv, err := server.Start(ctx, server.Options{Name: name, Logger: logger, SettingsPath: settingsPath})
 	if err != nil {
 		logger.Error("could not start", "err", err)
 		os.Exit(1)
@@ -273,5 +297,5 @@ func logFilePath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, constants.Logfile), nil
+	return filepath.Join(dir, constants.LogFile), nil
 }

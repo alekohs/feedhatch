@@ -38,3 +38,5 @@ go.work.sum
 
 # ignore db files
 *.db
+
+*.tmp
