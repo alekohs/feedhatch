@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -151,5 +153,40 @@ func TestRunningSeesTheSocketOwner(t *testing.T) {
 	s.Close()
 	if Running("feedhatch") {
 		t.Fatal("Running should be false after Close")
+	}
+}
+
+func TestCloseWaitsForAFetchInProgress(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	started := make(chan struct{})
+	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(feedServer.Close)
+
+	st, err := store.Open("feedhatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFeed(store.Feed{URL: feedServer.URL}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	s := startTest(t)
+	<-started // the worker's first round is now waiting on the feed
+
+	done := make(chan struct{})
+	go func() {
+		s.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close should cancel the fetch and return")
 	}
 }

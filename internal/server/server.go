@@ -30,6 +30,7 @@ type Server struct {
 	logger      *slog.Logger
 	listener    net.Listener
 	stop        context.CancelFunc
+	worker      sync.WaitGroup
 	mu          sync.Mutex
 	subscribers map[*subscriber]struct{}
 }
@@ -64,15 +65,18 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 
 	s.listener, s.Serving = l, true
 	go s.serve(l)
-	go worker.Run(ctx, st, s.report, s.roundDone)
+	s.worker.Go(func() { worker.Run(ctx, st, s.report, s.roundDone) })
 
 	logger.Info("started", "socket", path)
 	return s, nil
 }
 
+// Close stops the worker, waiting for a fetch in progress so it doesn't write to a
+// closed database, then closes the socket and the store.
 func (s *Server) Close() {
 	s.logger.Info("closing")
 	s.stop()
+	s.worker.Wait()
 	if s.listener != nil {
 		s.listener.Close()
 	}

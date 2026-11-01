@@ -13,8 +13,8 @@ import (
 	"github.com/mmcdole/gofeed"
 )
 
-func Fetch(feed store.Feed) (*gofeed.Feed, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+func Fetch(ctx context.Context, feed store.Feed) (*gofeed.Feed, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feed.URL, nil)
@@ -46,7 +46,8 @@ func Fetch(feed store.Feed) (*gofeed.Feed, error) {
 
 // UpdateFeeds fetches every feed whose interval has passed, saves its new articles
 // and reports the outcome of each fetched feed.
-func UpdateFeeds(s *store.Store, report func(feed string, added int, err error)) error {
+// When ctx is cancelled it stops after the current request, without reporting it.
+func UpdateFeeds(ctx context.Context, s *store.Store, report func(feed string, added int, err error)) error {
 	feeds, err := s.Feeds()
 	if err != nil {
 		return err
@@ -65,7 +66,10 @@ func UpdateFeeds(s *store.Store, report func(feed string, added int, err error))
 		}
 
 		var added int
-		result, err := Fetch(f)
+		result, err := Fetch(ctx, f)
+		if ctx.Err() != nil {
+			return nil
+		}
 		if err == nil {
 			added, err = s.SaveArticles(f.ID, articles(result))
 		}

@@ -15,7 +15,11 @@ func Run(ctx context.Context, s *store.Store, report func(feed string, added int
 	defer ticker.Stop()
 
 	for {
-		done(feed.UpdateFeeds(s, report))
+		err := feed.UpdateFeeds(ctx, s, report)
+		if ctx.Err() != nil {
+			return
+		}
+		done(err)
 
 		select {
 		case <-ctx.Done():

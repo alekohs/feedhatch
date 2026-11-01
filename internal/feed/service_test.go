@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,7 +50,7 @@ func TestFetch(t *testing.T) {
 	http.DefaultClient = &client
 	t.Cleanup(func() { http.DefaultClient = previousClient })
 
-	result, err := Fetch(store.Feed{URL: server.URL})
+	result, err := Fetch(context.Background(), store.Feed{URL: server.URL})
 	if err != nil {
 		t.Fatalf("Fetch() returnerade ett fel: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestFetchInvalidRSS(t *testing.T) {
 	}
 	t.Cleanup(func() { http.DefaultClient = previousClient })
 
-	result, err := Fetch(store.Feed{URL: "https://example.com/feed"})
+	result, err := Fetch(context.Background(), store.Feed{URL: "https://example.com/feed"})
 	if err == nil {
 		t.Fatal("Fetch() ska returnera ett fel för ogiltig RSS")
 	}
@@ -135,7 +136,7 @@ func TestUpdateFeeds(t *testing.T) {
 	report := func(feed string, added int, err error) {
 		reports = append(reports, fmt.Sprintf("%s: %d %v", feed, added, err))
 	}
-	if err := UpdateFeeds(s, report); err != nil {
+	if err := UpdateFeeds(context.Background(), s, report); err != nil {
 		t.Fatalf("UpdateFeeds() returnerade ett fel: %v", err)
 	}
 	if len(reports) != 1 || reports[0] != server.URL+": 1 <nil>" {
@@ -152,7 +153,7 @@ func TestUpdateFeeds(t *testing.T) {
 		t.Error("publiceringsdatum saknas")
 	}
 
-	if err := UpdateFeeds(s, report); err != nil {
+	if err := UpdateFeeds(context.Background(), s, report); err != nil {
 		t.Fatal(err)
 	}
 	if requests != 1 {
@@ -174,5 +175,36 @@ func TestArticlesTakeTheImageFromTheEnclosure(t *testing.T) {
 	got := articles(result)
 	if got[0].Image != "https://x.example/cover.png" || got[1].Image != "" {
 		t.Fatalf("images = %q, %q", got[0].Image, got[1].Image)
+	}
+}
+
+func TestUpdateFeedsStopsWithoutReportingWhenCancelled(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done() // hang until the client gives up
+	}))
+	t.Cleanup(server.Close)
+
+	s, err := store.OpenPath(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	for _, path := range []string{"/a", "/b"} {
+		if _, err := s.AddFeed(store.Feed{URL: server.URL + path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-started
+		cancel()
+	}()
+	var reports []string
+	err = UpdateFeeds(ctx, s, func(feed string, added int, err error) { reports = append(reports, feed) })
+	if err != nil || len(reports) != 0 {
+		t.Fatalf("err = %v, reports = %v: a cancelled round should stop quietly", err, reports)
 	}
 }
