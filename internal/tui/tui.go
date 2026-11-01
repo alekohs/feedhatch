@@ -98,6 +98,8 @@ type Model struct {
 	imageDir        string
 	imagesSupported bool
 	imagesOn        bool // images load automatically where supported, until I turns them off
+	imagesOff       bool // the choice made with I, kept even where images aren't supported
+	settingsPath    string
 	terminalTheme   bool
 	form            *form
 	search          searchState
@@ -126,13 +128,21 @@ type Config struct {
 	LogPath  string // the log file shown with !
 	ImageDir string // the disk cache for article images
 	Images   bool   // the terminal can show images (kitty graphics protocol)
+	// SettingsPath is where column widths and the image choice are remembered;
+	// empty remembers nothing.
+	SettingsPath string
 }
 
 func New(st *store.Store, updates <-chan FetchedMsg, announce func(event.Event), cfg Config) (Model, error) {
 	m := Model{
 		store: st, updates: updates, announce: announce, mock: cfg.Mock, logPath: cfg.LogPath, terminalTheme: true,
 		imageDir: cfg.ImageDir, imagesSupported: cfg.Images, imagesOn: cfg.Images, gallery: newGallery(),
+		settingsPath: cfg.SettingsPath,
 	}
+	saved := loadSettings(cfg.SettingsPath)
+	m.sidebarWidth, m.listWidth = saved.SidebarWidth, saved.ListWidth
+	m.imagesOff = saved.ImagesOff
+	m.imagesOn = m.imagesOn && !m.imagesOff
 	if err := m.load(); err != nil {
 		return Model{}, err
 	}
@@ -327,7 +337,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveBorder(m.dragging, msg.Mouse().X)
 		}
 	case tea.MouseReleaseMsg:
-		m.dragging = noBorder
+		if m.dragging != noBorder {
+			m.dragging = noBorder
+			m.saveSettings()
+		}
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Wrapped row numbers change on resize; do not silently copy a new range.
@@ -527,21 +540,26 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case !m.imagesSupported:
 				m.status, m.tone = "Terminalen kan inte visa bilder (kräver kitty eller Ghostty).", toneWarn
 			case m.imagesOn:
-				m.imagesOn = false
+				m.imagesOn, m.imagesOff = false, true
 				m.status = "Bilder avstängda."
+				m.saveSettings()
 			default:
-				m.imagesOn = true
+				m.imagesOn, m.imagesOff = true, false
 				m.status = "Bilder påslagna."
+				m.saveSettings()
 			}
 			m.ensureLineVisible()
 		case "<":
 			m.resize(-resizeStep)
+			m.saveSettings()
 		case ">":
 			m.resize(resizeStep)
+			m.saveSettings()
 		case "=":
 			m.sidebarWidth, m.listWidth = 0, 0
 			m.visual = false
 			m.ensureLineVisible()
+			m.saveSettings()
 		case "!":
 			m.logOpen, m.logScroll = true, 1<<20
 			m.logGen++

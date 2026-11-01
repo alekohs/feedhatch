@@ -122,10 +122,11 @@ func runTUI(name string, mock bool, logSize int) {
 	}()
 
 	model, err := tui.New(srv.Store, updates, announce, tui.Config{
-		Mock:     mock,
-		LogPath:  logPath,
-		ImageDir: imageDir,
-		Images:   graphics.Supported(),
+		Mock:         mock,
+		LogPath:      logPath,
+		ImageDir:     imageDir,
+		SettingsPath: filepath.Join(filepath.Dir(logPath), "settings.json"),
+		Images:       graphics.Supported(),
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
