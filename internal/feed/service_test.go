@@ -251,3 +251,24 @@ func TestUpdateFeedFetchesOnlyThatFeedRightAway(t *testing.T) {
 		t.Fatal("an unknown feed id should fail")
 	}
 }
+
+func TestFetchNamesItselfAndReportsHTTPErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Like sites that block Go's default client with an HTML error page.
+		if !strings.HasPrefix(r.UserAgent(), "feedhatch") || r.URL.Path == "/blocked" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, "<html>403 - Forbidden</html>")
+			return
+		}
+		_, _ = io.WriteString(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title></channel></rss>`)
+	}))
+	t.Cleanup(server.Close)
+
+	if _, err := Fetch(context.Background(), store.Feed{URL: server.URL + "/feed"}); err != nil {
+		t.Fatalf("a site that blocks Go's default client should accept feedhatch: %v", err)
+	}
+	_, err := Fetch(context.Background(), store.Feed{URL: server.URL + "/blocked"})
+	if err == nil || !strings.Contains(err.Error(), "403 Forbidden") {
+		t.Fatalf("err = %v, want the HTTP status instead of a feed parse error", err)
+	}
+}

@@ -560,7 +560,21 @@ func (m Model) readerRows(width int) (lines []string, imageAt map[string]int) {
 	imageAt = map[string]int{}
 	head := a.title + "\n" + a.date + " · " + m.currentFeed().name + "\n"
 	lines = strings.Split(ansi.Wrap(head, max(1, width), ""), "\n")
-	for _, line := range a.bodyLines() {
+	body := a.bodyLines()
+	for i, line := range body {
+		if code, ok := strings.CutPrefix(line, parser.Code); ok {
+			// An empty code line above and below pads the block, as a web page does.
+			if i == 0 || !strings.HasPrefix(body[i-1], parser.Code) {
+				lines = append(lines, parser.Code)
+			}
+			for _, row := range strings.Split(ansi.Hardwrap(code, max(1, width-2), true), "\n") {
+				lines = append(lines, parser.Code+row)
+			}
+			if i == len(body)-1 || !strings.HasPrefix(body[i+1], parser.Code) {
+				lines = append(lines, parser.Code)
+			}
+			continue
+		}
 		if src, _, ok := parser.ParseImage(line); ok {
 			if _, seen := imageAt[resolveURL(a.link, src)]; !seen {
 				imageAt[resolveURL(a.link, src)] = len(lines)
@@ -739,6 +753,9 @@ func (m Model) reader(width, height int) string {
 		} else if i == titleRows {
 			style = p.normal().Foreground(p.muted)
 		}
+		if strings.HasPrefix(lines[i], parser.Code) && p.code != nil {
+			style = style.Background(p.code)
+		}
 		switch {
 		case m.reading && m.visual && i >= low && i <= high:
 			style = p.selected(true)
@@ -794,6 +811,7 @@ func (s *inline) apply(r rune) bool {
 		s.italic = false
 	case parser.LinkOff:
 		s.link = 0
+	case parser.Code:
 	default:
 		n, ok := parser.LinkNumber(r)
 		if !ok {

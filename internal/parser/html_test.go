@@ -62,8 +62,8 @@ func TestText(t *testing.T) {
 		},
 		{
 			name: "preformatted text is kept",
-			html: "<pre>func main() {\n    fmt.Println(1)\n}</pre>",
-			text: "func main() {\n    fmt.Println(1)\n}",
+			html: "<p>Code:</p><pre><code>func main() {\n\tfmt.Println(1)\n\n}\n</code></pre>",
+			text: "Code:\n\n" + Code + "func main() {\n" + Code + "    fmt.Println(1)\n" + Code + "\n" + Code + "}",
 		},
 		{
 			name: "scripts and styles are dropped, images get a line of their own",

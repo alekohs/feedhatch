@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"codeberg.org/readeck/go-readability/v2"
+
+	"alekohs/feedhatch/internal/constants"
 )
 
 // FullArticle downloads the page at link and returns its main content as HTML, without
@@ -24,6 +26,7 @@ func FullArticle(ctx context.Context, link string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	req.Header.Set("User-Agent", constants.UserAgent)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err

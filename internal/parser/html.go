@@ -24,6 +24,9 @@ const (
 	ImageAlt = "\ue005"
 )
 
+// Code starts every line of a preformatted block; the reader draws those lines as a block.
+const Code = "\ue006"
+
 // Link text sits between LinkStart(n), for the nth of Text's links, and LinkOff.
 const (
 	LinkOff   = "\ue007"
@@ -100,6 +103,7 @@ func Text(src string) (text string, links []string) {
 
 func walk(n *html.Node, pre bool, b *strings.Builder, links *[]string) {
 	linkAt := -1 // where this element's link text starts in b, if it is a link
+	codeAt := -1 // where this pre element's text starts in b
 	if n.Type == html.TextNode {
 		t := n.Data
 		if !pre {
@@ -151,10 +155,20 @@ func walk(n *html.Node, pre bool, b *strings.Builder, links *[]string) {
 		case "p", "div", "pre", "blockquote", "ul", "ol":
 			b.WriteString("\n\n")
 		}
+		if n.Data == "pre" && !pre {
+			codeAt = b.Len()
+		}
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		walk(c, pre || n.Data == "pre", b, links)
+	}
+
+	if codeAt >= 0 {
+		s := b.String()
+		code := strings.Trim(strings.ReplaceAll(s[codeAt:], "\t", "    "), "\n")
+		b.Reset()
+		b.WriteString(s[:codeAt] + Code + strings.ReplaceAll(code, "\n", "\n"+Code))
 	}
 
 	if n.Type == html.ElementNode {

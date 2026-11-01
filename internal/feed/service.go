@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"alekohs/feedhatch/internal/constants"
 	"alekohs/feedhatch/internal/store"
 	"github.com/mmcdole/gofeed"
 )
@@ -21,12 +22,17 @@ func Fetch(ctx context.Context, feed store.Feed) (*gofeed.Feed, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", constants.UserAgent)
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer res.Body.Close()
+	// An error page is not a feed: say what the server said instead of failing to parse it.
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s", res.Status)
+	}
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {

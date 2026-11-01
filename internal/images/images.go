@@ -22,6 +22,8 @@ import (
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
+
+	"alekohs/feedhatch/internal/constants"
 )
 
 const (
@@ -146,6 +148,7 @@ func download(src string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", constants.UserAgent)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

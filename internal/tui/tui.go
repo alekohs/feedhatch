@@ -107,6 +107,7 @@ type Model struct {
 	notificationsOn bool // the master switch for OS notifications (Alt+b); feeds have their own
 	settingsPath    string
 	terminalTheme   bool
+	terminalBg      tea.BackgroundColorMsg // the terminal's own background, once it answers
 	form            *form
 	search          searchState
 	filter          string
@@ -295,7 +296,7 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
-func (m Model) Init() tea.Cmd { return m.waitForUpdate() }
+func (m Model) Init() tea.Cmd { return tea.Batch(m.waitForUpdate(), tea.RequestBackgroundColor) }
 
 func (m Model) waitForUpdate() tea.Cmd {
 	if m.updates == nil {
@@ -346,6 +347,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		mouse := msg.Mouse()
 		m.mouseWheel(mouse.X, mouse.Y, mouse.Button == tea.MouseWheelDown)
+	case tea.BackgroundColorMsg:
+		m.terminalBg = msg
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Wrapped row numbers change on resize; do not silently copy a new range.
