@@ -5,8 +5,10 @@ import "time"
 // SeedMock fills the store with sample feeds for tests and `make run-mock`.
 func (s *Store) SeedMock() error {
 	now := time.Now()
+	// Relative to now, with 10:00 as the present, so no article is dated in the future
+	// whatever the time of day.
 	day := func(offset, hour, minute int) time.Time {
-		return time.Date(now.Year(), now.Month(), now.Day()+offset, hour, minute, 0, 0, time.Local)
+		return now.AddDate(0, 0, offset).Add(time.Duration(hour-10)*time.Hour + time.Duration(minute)*time.Minute)
 	}
 
 	mocks := []struct {

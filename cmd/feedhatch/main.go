@@ -21,6 +21,7 @@ import (
 	"alekohs/feedhatch/internal/event"
 	"alekohs/feedhatch/internal/graphics"
 	"alekohs/feedhatch/internal/images"
+	"alekohs/feedhatch/internal/opml"
 	"alekohs/feedhatch/internal/server"
 	"alekohs/feedhatch/internal/settings"
 	"alekohs/feedhatch/internal/store"
@@ -31,9 +32,12 @@ import (
 var version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "export" || os.Args[1] == "import") {
-		runTransfer(os.Args[1], os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "export", "import", "export-opml", "import-opml":
+			runTransfer(os.Args[1], os.Args[2:])
+			return
+		}
 	}
 
 	var daemon bool
@@ -45,7 +49,7 @@ func main() {
 	flag.BoolVar(&daemon, "daemon", false, "only fetch feeds on their intervals, without the TUI")
 	flag.BoolVar(&daemon, "d", false, "only fetch feeds on their intervals, without the TUI")
 	flag.Usage = func() {
-		fmt.Fprintln(flag.CommandLine.Output(), "usage: feedhatch [flags]\n       feedhatch export|import [-dev] <file>")
+		fmt.Fprintln(flag.CommandLine.Output(), "usage: feedhatch [flags]\n       feedhatch export|import|export-opml|import-opml [-dev] <file>")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -224,7 +228,57 @@ func runTransfer(cmd string, args []string) {
 			fail(err)
 		}
 		fmt.Printf("Imported %s into %s\n", file, db)
+	case "export-opml":
+		if _, err := os.Stat(db); err != nil {
+			fail(fmt.Errorf("no database to export at %s", db))
+		}
+		st, err := store.Open(name)
+		if err != nil {
+			fail(err)
+		}
+		defer st.Close()
+		if err := exportOPML(st, file); err != nil {
+			fail(err)
+		}
+		fmt.Printf("Exported the feeds to %s\n", file)
+	case "import-opml":
+		f, err := os.Open(file)
+		if err != nil {
+			fail(err)
+		}
+		defer f.Close()
+		parsed, err := opml.Parse(f)
+		if err != nil {
+			fail(err)
+		}
+		st, err := store.Open(name)
+		if err != nil {
+			fail(err)
+		}
+		defer st.Close()
+		added, skipped, err := opml.Import(parsed, st)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("Feeds added: %d, skipped: %d (already added or not an http(s) address)\n", added, skipped)
 	}
+}
+
+// exportOPML writes the feeds to a new file at path; it refuses to overwrite an existing one.
+func exportOPML(st *store.Store, path string) error {
+	exported, err := opml.Export(st)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if err := opml.Write(f, exported); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func fail(err error) {

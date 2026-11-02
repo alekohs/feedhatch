@@ -60,6 +60,22 @@ it (keeping the three newest backups), and upgrades the imported copy to the cur
 refuses to run while feedhatch is running. Add `-dev` to either command for the
 development data.
 
+## OPML
+
+To bring your feeds from another reader, or take them to one:
+
+```sh
+feedhatch import-opml subscriptions.opml
+feedhatch export-opml subscriptions.opml
+```
+
+Importing only adds feeds, so it's safe while feedhatch runs and when repeated:
+feeds you already have are left alone, and a new feed is fetched within a minute.
+Each feed gets the category of its nearest folder and the default interval. An
+OPML export holds feeds and categories only, not articles, read state, intervals
+or notification settings, and it refuses to overwrite a file; use `feedhatch
+export` for a full backup. Add `-dev` to either command for the development data.
+
 ## Releasing
 
 Push a tag like `v0.2.0`; the release workflow runs the tests and GoReleaser,
