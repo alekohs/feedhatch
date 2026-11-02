@@ -29,6 +29,8 @@ import (
 const (
 	maxBytes = 20 << 20 // larger downloads are cut off and fail to decode
 	maxWidth = 1600     // wider images are scaled down before they are sent to the terminal
+	// maxPixels refuses images whose small file would decode to gigabytes of memory.
+	maxPixels = 100_000_000
 
 	// MaxCache is how large the image cache may grow; Prune removes the least
 	// recently used images beyond it.
@@ -54,6 +56,14 @@ func Load(src, dir string) (image.Image, error) {
 		if err := save(path, data); err != nil {
 			return nil, err
 		}
+	}
+
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode %s: %w", src, err)
+	}
+	if config.Width*config.Height > maxPixels {
+		return nil, fmt.Errorf("decode %s: %d × %d is too large", src, config.Width, config.Height)
 	}
 
 	if bytes.HasPrefix(data, []byte("GIF")) {

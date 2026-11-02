@@ -203,7 +203,7 @@ previews the selected article without marking it read; opening it with `enter`,
 | `<` / `>` | Move the column border next to the focused panel; `=` resets the widths. You can also drag a border with the mouse. Widths are remembered (in `~/.config/feedhatch/settings.json`, `feedhatch-dev` for `-dev`) |
 | `?` | Show/close help |
 | `!` | Show/close the log page (the end of `feedhatch.log`), re-read every second while open; at the end it follows new lines |
-| `q` / `Ctrl+c` | Quit (`Ctrl+c` also works in forms) |
+| `q` / `Ctrl+c` | Quit (`q` asks first, `y` confirms; `Ctrl+c` quits right away and also works in forms) |
 
 In forms, `Tab` switches field, `Enter` moves on/saves, `Ctrl+u` clears the
 current field and `Esc` cancels. A new feed is fetched right away, so its articles show up within seconds.

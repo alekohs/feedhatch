@@ -1,5 +1,10 @@
 package store
 
+import (
+	"database/sql"
+	"errors"
+)
+
 func (s *Store) AddFeed(f Feed) (int64, error) {
 	if f.Interval == 0 {
 		f.Interval = 15
@@ -70,6 +75,13 @@ func (s *Store) SetInterval(feedID int64, interval int64) error {
 func (s *Store) DeleteFeed(feedID int64) error {
 	_, err := s.db.Exec("DELETE FROM feeds WHERE id = $1", feedID)
 	return err
+}
+
+// FeedGone reports whether the feed has been deleted.
+func (s *Store) FeedGone(feedID int64) bool {
+	var id int64
+	err := s.db.QueryRow("SELECT id FROM feeds WHERE id = $1", feedID).Scan(&id)
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 // SetNotification turns OS notifications for the feed's new articles on or off.

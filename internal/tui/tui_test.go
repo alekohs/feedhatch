@@ -475,3 +475,43 @@ func TestMarkFeedRead(t *testing.T) {
 		t.Fatalf("a feed without unread articles should not announce again, status = %q", m.status)
 	}
 }
+
+func TestQuitAsksForConfirmation(t *testing.T) {
+	isQuit := func(cmd tea.Cmd) bool {
+		if cmd == nil {
+			return false
+		}
+		_, ok := cmd().(tea.QuitMsg)
+		return ok
+	}
+	for _, open := range []string{"", "?", "!"} {
+		m := sizedModel(t)
+		if open != "" {
+			m = press(m, open)
+		}
+		updated, cmd := m.update(keyMessage("q"))
+		m = updated.(Model)
+		if isQuit(cmd) || !m.pendingQuit || !strings.Contains(m.status, "Avsluta") {
+			t.Fatalf("open %q: q should ask first, got status %q", open, m.status)
+		}
+
+		updated, cmd = m.update(keyMessage("j"))
+		m = updated.(Model)
+		if isQuit(cmd) || m.pendingQuit || m.status != "" {
+			t.Fatalf("open %q: another key should cancel, got status %q", open, m.status)
+		}
+
+		updated, _ = m.update(keyMessage("q"))
+		if _, cmd = updated.(Model).update(keyMessage("y")); !isQuit(cmd) {
+			t.Fatalf("open %q: y should quit", open)
+		}
+	}
+}
+
+func TestQuitDoesNotAskWhenTheQuestionCannotBeShown(t *testing.T) {
+	m := sizedModel(t)
+	m.width, m.height = 40, 10
+	if _, cmd := m.update(keyMessage("q")); cmd == nil {
+		t.Fatal("q should quit right away in a terminal too small to show the question")
+	}
+}

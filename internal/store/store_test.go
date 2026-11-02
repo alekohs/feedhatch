@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -214,6 +215,22 @@ func TestSaveArticlesFillsInMissingImages(t *testing.T) {
 	}
 	if images["a"] != "https://example.com/a.png" || images["b"] != "https://example.com/old.png" {
 		t.Fatalf("images = %v, want a filled in and b kept", images)
+	}
+}
+
+func TestOpenRefusesADatabaseFromANewerVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := OpenPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("PRAGMA user_version = 9999"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	if _, err := OpenPath(path); err == nil || !strings.Contains(err.Error(), "newer feedhatch") {
+		t.Fatalf("err = %v, want it to say the database is from a newer version", err)
 	}
 }
 

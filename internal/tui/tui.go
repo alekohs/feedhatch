@@ -116,6 +116,7 @@ type Model struct {
 	view            listView
 	keep            map[int64]bool
 	pendingReadAll  bool
+	pendingQuit     bool
 	pendingLinks    []lineLink // o on a line with several links: waiting for a digit
 	count           int        // a Vim-style count typed before a motion, e.g. the 5 in 5j
 	hints           *hintState // O: letters on the visible links, waiting for one to be typed
@@ -214,8 +215,7 @@ func (m *Model) load() error {
 		sub := subscription{id: f.ID, interval: f.Interval, name: f.Name, url: f.URL, category: f.Category, notify: f.Notification}
 		for _, a := range articles {
 			body, links := parser.Text(a.Content)
-			title, _ := parser.Text(a.Title)
-			title = plainLine(title)
+			title := plainLine(parser.Title(a.Title))
 
 			sub.articles = append(sub.articles, article{
 				id: a.ID, title: title, date: formatDate(a.PublishedAt), body: body, link: a.Link, links: links, image: a.Image,
@@ -320,7 +320,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updated, m.fetchFailed = time.Now(), msg.Err != nil
 		if err := m.reload(false); err != nil {
 			m.status, m.tone = "Kunde inte läsa in flödena: "+err.Error(), toneErr
-		} else if msg.Err != nil && !m.pendingDelete && !m.pendingReadAll {
+		} else if msg.Err != nil && !m.pendingDelete && !m.pendingReadAll && !m.pendingQuit {
 			m.status, m.tone = "Uppdatering misslyckades: "+strings.ReplaceAll(msg.Err.Error(), "\n", "; "), toneErr
 		}
 		m.ensureLineVisible()
@@ -380,6 +380,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateSearch(msg)
 			return m, nil
 		}
+		if m.pendingQuit {
+			m.pendingQuit = false
+			m.status, m.tone = "", toneInfo
+			if key == "y" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		if m.logOpen {
 			if delta, ok := m.pageMotion(key); ok {
 				m.logScroll = clamp(m.logScroll+delta, m.maxLogScroll()+1)
@@ -387,7 +395,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			switch key {
 			case "q":
-				return m, tea.Quit
+				return m, m.askQuit()
 			case "!", "esc", "h":
 				m.logOpen = false
 			case "r":
@@ -413,7 +421,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			switch key {
 			case "q":
-				return m, tea.Quit
+				return m, m.askQuit()
 			case "?", "esc", "h", "enter":
 				m.help = false
 			case "t":
@@ -492,7 +500,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch key {
 		case "q":
-			return m, tea.Quit
+			return m, m.askQuit()
 		case "]", "[", "J", "K":
 			for range n {
 				switch key {
@@ -717,6 +725,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// askQuit asks before quitting; a terminal too small to show the question quits right away.
+func (m *Model) askQuit() tea.Cmd {
+	if m.width < 60 || m.height < 14 {
+		return tea.Quit
+	}
+	m.pendingQuit = true
+	m.status, m.tone = "Avsluta feedhatch? y avslutar, annan tangent avbryter.", toneWarn
+	return nil
 }
 
 func (m Model) articleRefs() []ref {

@@ -82,6 +82,15 @@ var (
 	blankLines = regexp.MustCompile(`\n{3,}`)
 )
 
+var titleTags = regexp.MustCompile(`(?i)</?(?:a|abbr|b|big|br|cite|code|del|em|font|i|ins|kbd|mark|q|s|small|span|strike|strong|sub|sup|u|var)\b[^>]*>`)
+
+// Title turns a feed item's title into one line of plain text. Titles are mostly plain,
+// so only inline formatting tags are removed and "The <script> tag" keeps its words.
+func Title(src string) string {
+	title := html.UnescapeString(titleTags.ReplaceAllString(src, ""))
+	return strings.TrimSpace(spaces.ReplaceAllString(title, " "))
+}
+
 // Text turns an articles HTML into plain text for the reader. Links are numbered
 // in the text, e.g. "release notes [1]", and returned in the same order
 func Text(src string) (text string, links []string) {

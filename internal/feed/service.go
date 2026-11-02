@@ -14,6 +14,11 @@ import (
 	"github.com/mmcdole/gofeed"
 )
 
+const (
+	maxBody    = 50 << 20 // larger responses are cut off, so a feed fails to parse
+	retryDelay = 20 * 60  // seconds until a failed feed is tried again
+)
+
 func Fetch(ctx context.Context, feed store.Feed) (*gofeed.Feed, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -34,7 +39,7 @@ func Fetch(ctx context.Context, feed store.Feed) (*gofeed.Feed, error) {
 		return nil, fmt.Errorf("%s", res.Status)
 	}
 
-	body, err := io.ReadAll(res.Body)
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxBody))
 	if err != nil {
 		return nil, err
 	}
@@ -102,8 +107,17 @@ func update(ctx context.Context, s *store.Store, f store.Feed, now time.Time, re
 	if err == nil {
 		added, err = s.SaveArticles(f.ID, articles(result))
 	}
-	if err == nil {
-		err = s.SetFetched(f.ID, now.Unix())
+	// Deleted while it was being fetched: nobody is waiting for it, so it is no failure.
+	if err != nil && s.FeedGone(f.ID) {
+		return nil
+	}
+	fetched := now.Unix()
+	if err != nil {
+		// Dated so that the feed is due again after retryDelay, or its interval if shorter.
+		fetched -= max(0, f.Interval*60-retryDelay)
+	}
+	if setErr := s.SetFetched(f.ID, fetched); err == nil {
+		err = setErr
 	}
 	report(f, added, err)
 	if err != nil {
@@ -118,6 +132,9 @@ func articles(result *gofeed.Feed) []store.Article {
 		a := store.Article{GUID: item.GUID, Title: item.Title, Link: item.Link, Content: item.Content}
 		if a.GUID == "" {
 			a.GUID = item.Link
+		}
+		if a.GUID == "" {
+			a.GUID = item.Title + "|" + item.Published
 		}
 		if a.Content == "" {
 			a.Content = item.Description

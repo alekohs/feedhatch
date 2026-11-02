@@ -5,6 +5,20 @@ import (
 	"testing"
 )
 
+func TestTitle(t *testing.T) {
+	for src, want := range map[string]string{
+		"The <script> tag explained": "The <script> tag explained",
+		"Vector<int> tips":           "Vector<int> tips",
+		"<b>Bold</b> &amp; plain":    "Bold & plain",
+		"&lt;b&gt; is a tag":         "<b> is a tag",
+		"  Two\n  lines ":            "Two lines",
+	} {
+		if got := Title(src); got != want {
+			t.Errorf("Title(%q) = %q, want %q", src, got, want)
+		}
+	}
+}
+
 func TestText(t *testing.T) {
 	cases := []struct {
 		name, html, text string

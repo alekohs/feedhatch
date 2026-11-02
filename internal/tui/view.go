@@ -1066,7 +1066,7 @@ F  Hämta hela artikeln från webbsidan (för flöden med bara en ingress)
 < / >  Smalare/bredare kolumn (kanten intill fokus) · = standardbredd
 Dra en kolumnkant med musen för att ändra bredden
 Mus: klicka för att välja (två klick öppnar artikeln) · hjulet rullar · dra över texten för att kopiera rader · klicka på statusraden för att kopiera meddelandet
-?  Hjälp · Esc stäng · q avsluta
+?  Hjälp · Esc stäng · q avsluta (y bekräftar)
 !  Visa loggen (r läser om, Esc stänger)
 Ctrl+c  Avsluta, även i formulär
 Urklipp använder OSC52 (t.ex. Ghostty).`

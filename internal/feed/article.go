@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -36,7 +37,7 @@ func FullArticle(ctx context.Context, link string) (string, error) {
 		return "", fmt.Errorf("download %s: %s", link, res.Status)
 	}
 
-	article, err := readability.FromReader(res.Body, pageURL)
+	article, err := readability.FromReader(io.LimitReader(res.Body, maxBody), pageURL)
 	if err != nil {
 		return "", fmt.Errorf("find the article in %s: %w", link, err)
 	}

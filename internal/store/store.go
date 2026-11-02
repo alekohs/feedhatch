@@ -173,6 +173,10 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
+	if version > len(files) {
+		return fmt.Errorf("the database was made by a newer feedhatch (schema %d, this version knows %d)", version, len(files))
+	}
+
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 
 	for i, f := range files[version:] {

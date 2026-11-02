@@ -162,6 +162,104 @@ func TestUpdateFeeds(t *testing.T) {
 	}
 }
 
+func TestFeedDeletedDuringItsFetchIsNoFailure(t *testing.T) {
+	s, err := store.OpenPath(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	var id int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := s.DeleteFeed(id); err != nil {
+			t.Error(err)
+		}
+		_, _ = io.WriteString(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
+<item><title>Post</title><guid>1</guid></item></channel></rss>`)
+	}))
+	t.Cleanup(server.Close)
+	if id, err = s.AddFeed(store.Feed{URL: server.URL}); err != nil {
+		t.Fatal(err)
+	}
+
+	reports := 0
+	err = UpdateFeeds(context.Background(), s, func(store.Feed, int, error) { reports++ })
+	if err != nil || reports != 0 {
+		t.Fatalf("err = %v, reports = %d: a deleted feed should end quietly", err, reports)
+	}
+}
+
+func TestFailedFeedIsTriedAgainAfterTheRetryDelay(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	for _, tc := range []struct{ interval, wait int64 }{
+		{24 * 60, retryDelay}, // a long interval must not delay the retry
+		{5, 5 * 60},           // a shorter interval still applies
+	} {
+		s, err := store.OpenPath(filepath.Join(t.TempDir(), "test.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { s.Close() })
+		if _, err := s.AddFeed(store.Feed{URL: server.URL, Interval: tc.interval}); err != nil {
+			t.Fatal(err)
+		}
+
+		requests = 0
+		report := func(store.Feed, int, error) {}
+		before := time.Now().Unix()
+		if err := UpdateFeeds(context.Background(), s, report); err == nil {
+			t.Fatal("the first round should report the failure")
+		}
+		if err := UpdateFeeds(context.Background(), s, report); err != nil {
+			t.Fatal(err)
+		}
+		if requests != 1 {
+			t.Errorf("interval %d: requests = %d, want 1 during the wait", tc.interval, requests)
+		}
+		feeds, err := s.Feeds()
+		if err != nil {
+			t.Fatal(err)
+		}
+		due := feeds[0].FetchedAt + tc.interval*60
+		if due < before+tc.wait || due > time.Now().Unix()+tc.wait {
+			t.Errorf("interval %d: due %d seconds from now, want %d", tc.interval, due-before, tc.wait)
+		}
+	}
+}
+
+func TestFetchCutsOffAnOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>`)
+		_, _ = io.WriteString(w, strings.Repeat(" ", maxBody))
+		_, _ = io.WriteString(w, `<item><title>Post</title><guid>1</guid></item></channel></rss>`)
+	}))
+	t.Cleanup(server.Close)
+
+	if _, err := Fetch(context.Background(), store.Feed{URL: server.URL}); err == nil {
+		t.Fatal("a response over the limit should fail to parse")
+	}
+}
+
+func TestArticlesWithoutGUIDOrLinkStayApart(t *testing.T) {
+	result, err := gofeed.NewParser().ParseString(`<?xml version="1.0"?>
+<rss version="2.0"><channel><title>T</title>
+<item><title>One</title><pubDate>Mon, 02 Nov 2026 10:00:00 GMT</pubDate></item>
+<item><title>Two</title><pubDate>Mon, 02 Nov 2026 11:00:00 GMT</pubDate></item>
+</channel></rss>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := articles(result)
+	if got[0].GUID == "" || got[0].GUID == got[1].GUID {
+		t.Fatalf("GUIDs = %q, %q, want two different keys", got[0].GUID, got[1].GUID)
+	}
+}
+
 func TestArticlesTakeTheImageFromTheEnclosure(t *testing.T) {
 	result, err := gofeed.NewParser().ParseString(`<?xml version="1.0"?>
 <rss version="2.0"><channel><title>T</title>

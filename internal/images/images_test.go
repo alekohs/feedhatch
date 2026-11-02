@@ -2,7 +2,9 @@ package images
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/gif"
@@ -87,6 +89,20 @@ func TestLoadRejectsTinyMissingAndBrokenImages(t *testing.T) {
 	}
 	if _, err := Load(server.URL+"/broken", dir); err == nil {
 		t.Fatal("data that is not an image should fail")
+	}
+}
+
+func TestLoadRefusesHugeImagesBeforeDecoding(t *testing.T) {
+	// Only a PNG's signature and header, claiming 50000 × 50000 pixels.
+	ihdr := []byte("IHDR\x00\x00\xc3\x50\x00\x00\xc3\x50\x08\x02\x00\x00\x00")
+	huge := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\x0d")
+	huge = append(huge, ihdr...)
+	huge = binary.BigEndian.AppendUint32(huge, crc32.ChecksumIEEE(ihdr))
+	server, _ := serve(t, map[string][]byte{"/huge.png": huge})
+
+	_, err := Load(server.URL+"/huge.png", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("err = %v, want the image refused as too large", err)
 	}
 }
 
