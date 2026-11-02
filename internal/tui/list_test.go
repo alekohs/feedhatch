@@ -37,6 +37,9 @@ func TestSidebarShowsVirtualEntriesAndHighlightsView(t *testing.T) {
 		if !strings.Contains(lines[1], "Alla artiklar") || !strings.Contains(lines[1], "[8]") {
 			t.Fatalf("second row should be Alla artiklar [8], got %q", lines[1])
 		}
+		if !strings.Contains(lines[0], "●") || strings.Contains(lines[1], "●") {
+			t.Fatalf("only Olästa should have an unread dot, got %q and %q", lines[0], lines[1])
+		}
 		if strings.TrimSpace(lines[2]) != "" {
 			t.Fatalf("a blank line should follow the virtual entries, got %q", lines[2])
 		}

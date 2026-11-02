@@ -428,9 +428,9 @@ func (m Model) sidebar(width, height int) string {
 		case e.header:
 			lines = append(lines, category.Render(ansi.Truncate(strings.ToUpper(e.category), width, "…")))
 		case e.view == unreadView:
-			lines = append(lines, m.sidebarRow("Olästa", unread, m.view == unreadView, p.normal(), width))
+			lines = append(lines, m.sidebarRow("Olästa", unread, true, m.view == unreadView, p.normal(), width))
 		case e.view == allView:
-			lines = append(lines, m.sidebarRow("Alla artiklar", total, m.view == allView, p.normal(), width))
+			lines = append(lines, m.sidebarRow("Alla artiklar", total, false, m.view == allView, p.normal(), width))
 		default:
 			feed := m.feeds[e.feed]
 			nameStyle := lipgloss.NewStyle().Foreground(p.muted)
@@ -441,21 +441,24 @@ func (m Model) sidebar(width, height int) string {
 			if feed.notify {
 				name += " ♪"
 			}
-			lines = append(lines, m.sidebarRow(name, unreadCount(feed), m.view == feedView && e.feed == m.feedIndex, nameStyle, width))
+			lines = append(lines, m.sidebarRow(name, unreadCount(feed), true, m.view == feedView && e.feed == m.feedIndex, nameStyle, width))
 		}
 	}
 	start := sidebarStart(selectedLine, height)
 	return strings.Join(lines[start:min(len(lines), start+height)], "\n")
 }
 
-func (m Model) sidebarRow(name string, unread int, selected bool, nameStyle lipgloss.Style, width int) string {
+func (m Model) sidebarRow(name string, count int, unread, selected bool, nameStyle lipgloss.Style, width int) string {
 	p := m.palette()
 	marker, dot, badge := " ", " ", ""
 	if selected {
 		marker = ">"
 	}
-	if unread > 0 {
-		dot, badge = "●", fmt.Sprintf("[%d]", unread)
+	if count > 0 {
+		badge = fmt.Sprintf("[%d]", count)
+		if unread {
+			dot = "●"
+		}
 	}
 	// Reserve a real badge column; never let a count wrap onto a new row.
 	nameWidth := max(1, width-4-lipgloss.Width(badge)-1)
@@ -464,7 +467,10 @@ func (m Model) sidebarRow(name string, unread int, selected bool, nameStyle lipg
 		return p.selected(m.focus == feedsPanel && m.form == nil && !m.help && !m.logOpen).Render(bar(marker+" "+dot+" "+name, badge, width))
 	}
 	gap := max(0, width-4-lipgloss.Width(name)-lipgloss.Width(badge))
-	counts := lipgloss.NewStyle().Foreground(p.unread)
+	counts := lipgloss.NewStyle().Foreground(p.muted)
+	if unread {
+		counts = lipgloss.NewStyle().Foreground(p.unread)
+	}
 	return p.normal().Render(marker+" ") + counts.Render(dot) + p.normal().Render(" ") +
 		nameStyle.Render(name) + p.normal().Render(strings.Repeat(" ", gap)) + counts.Render(badge)
 }
