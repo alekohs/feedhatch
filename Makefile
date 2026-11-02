@@ -16,8 +16,8 @@ clean: ## Clean build output and cached files
 	@go clean
 
 clean-db: ## Clean db from cache
-	@echo 'Remove db from ~/.cache/feedhatch/*.db'
-	@rm -rf ~/.cache/feedhatch/*.db
+	@echo 'Remove db from ~/.local/state/feedhatch and ~/.cache/feedhatch'
+	@rm -rf ~/.local/state/feedhatch/*.db ~/.cache/feedhatch/*.db
 
 run: ## Run application
 	@go run ./cmd/feedhatch/main.go

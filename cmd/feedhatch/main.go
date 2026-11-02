@@ -189,11 +189,14 @@ func runTransfer(cmd string, args []string) {
 	if *dev {
 		name = "feedhatch-dev"
 	}
-	dir, err := store.Dir(name)
+	if err := store.MoveFromCache(name); err != nil {
+		fail(err)
+	}
+	db, err := store.DBPath(name)
 	if err != nil {
 		fail(err)
 	}
-	db, file := filepath.Join(dir, constants.FeedDb), fs.Arg(0)
+	file := fs.Arg(0)
 
 	switch cmd {
 	case "export":

@@ -217,8 +217,47 @@ func TestSaveArticlesFillsInMissingImages(t *testing.T) {
 	}
 }
 
+func TestMoveFromCacheCopiesTheOldDatabaseOnce(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	old, err := OpenPath(filepath.Join(cache, "feedhatch", "feeds.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.AddFeed(Feed{URL: "https://example.com/old"}); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	if err := CreateWithExamples("feedhatch"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open("feedhatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	feeds, _ := s.Feeds()
+	if len(feeds) != 1 || feeds[0].URL != "https://example.com/old" {
+		t.Fatalf("feeds = %v, want only the old database's feed and no examples", feeds)
+	}
+
+	if err := s.DeleteFeed(feeds[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := MoveFromCache("feedhatch"); err != nil {
+		t.Fatal(err)
+	}
+	if feeds, _ := s.Feeds(); len(feeds) != 0 {
+		t.Fatal("an existing database must not be replaced by the old one")
+	}
+}
+
 func TestCreateWithExamplesOnlyForANewDatabase(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	if err := CreateWithExamples("feedhatch"); err != nil {
 		t.Fatal(err)

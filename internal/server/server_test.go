@@ -26,6 +26,7 @@ func startTest(t *testing.T) *Server {
 
 func TestStartServesAndSubscribeReceivesEvents(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	s := startTest(t)
@@ -62,6 +63,7 @@ func TestStartServesAndSubscribeReceivesEvents(t *testing.T) {
 
 func TestStartReplacesStaleSocket(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	if err := os.WriteFile(SocketPath("feedhatch"), nil, 0o600); err != nil {
@@ -88,6 +90,7 @@ func waitForEvent(t *testing.T, events <-chan event.Event) event.Event {
 
 func TestClientEventsReachOtherClients(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	s := startTest(t)
@@ -116,6 +119,7 @@ func TestClientEventsReachOtherClients(t *testing.T) {
 
 func TestDevNameKeepsItsOwnSocketAndDatabase(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	real := startTest(t)
@@ -143,6 +147,7 @@ func TestDevNameKeepsItsOwnSocketAndDatabase(t *testing.T) {
 
 func TestRunningSeesTheSocketOwner(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	if Running("feedhatch") {
@@ -160,6 +165,7 @@ func TestRunningSeesTheSocketOwner(t *testing.T) {
 
 func TestCloseWaitsForAFetchInProgress(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	started := make(chan struct{})
@@ -195,6 +201,7 @@ func TestCloseWaitsForAFetchInProgress(t *testing.T) {
 
 func TestListenerTakesOverWhenTheOwnerStops(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	previous := takeOverInterval
 	takeOverInterval = 20 * time.Millisecond
@@ -237,6 +244,7 @@ func TestListenerTakesOverWhenTheOwnerStops(t *testing.T) {
 
 func TestAddedFeedIsFetchedRightAway(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
@@ -294,6 +302,7 @@ func TestNewArticlesNotifyWhenTheFeedAndTheSwitchAllowIt(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
 			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 			notified := make(chan string, 4)
 			previous := sendNotification

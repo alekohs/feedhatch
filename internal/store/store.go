@@ -38,7 +38,7 @@ func OpenMock() (*Store, error) {
 
 }
 
-// Dir is the data directory of the feedhatch called name, e.g. ~/.cache/feedhatch.
+// Dir is the cache directory of the feedhatch called name, e.g. ~/.cache/feedhatch.
 func Dir(name string) (string, error) {
 	dir, err := os.UserCacheDir()
 	if err != nil {
@@ -47,23 +47,78 @@ func Dir(name string) (string, error) {
 	return filepath.Join(dir, name), nil
 }
 
-// Open opens feeds.db in the data directory of the feedhatch called name.
+// DBPath is the database of the feedhatch called name, e.g. ~/.local/state/feedhatch/feeds.db.
+func DBPath(name string) (string, error) {
+	dir := os.Getenv("XDG_STATE_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(dir, name, constants.FeedDb), nil
+}
+
+// Open opens the database of the feedhatch called name.
 func Open(name string) (*Store, error) {
-	dir, err := Dir(name)
+	path, err := DBPath(name)
 	if err != nil {
 		return nil, err
 	}
-	return OpenPath(filepath.Join(dir, constants.FeedDb))
+	return OpenPath(path)
+}
+
+// MoveFromCache copies a database that older versions kept in the cache directory to
+// DBPath, unless one is already there. The old file is left in place: a process still
+// running the old version has it open.
+func MoveFromCache(name string) error {
+	path, err := DBPath(name)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	dir, err := Dir(name)
+	if err != nil {
+		return err
+	}
+	old := filepath.Join(dir, constants.FeedDb)
+	if _, err := os.Stat(old); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	s, err := OpenPath(old)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	// Copied under another name, so an interrupted copy is never taken for the database.
+	tmp := path + ".tmp"
+	if err := os.Remove(tmp); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := s.Export(tmp); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // CreateWithExamples creates the database of the feedhatch called name with example
 // feeds, so a first start has something to read; an existing database is left alone.
 func CreateWithExamples(name string) error {
-	dir, err := Dir(name)
+	if err := MoveFromCache(name); err != nil {
+		return err
+	}
+	path, err := DBPath(name)
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, constants.FeedDb)
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

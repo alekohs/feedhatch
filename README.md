@@ -2,7 +2,7 @@
 Hatch your feeds. Catch every update.
 
 A keyboard-driven RSS reader built with Bubble Tea. Feeds, categories and
-read state are saved in `~/.cache/feedhatch/feeds.db`; a new database starts
+read state are saved in `~/.local/state/feedhatch/feeds.db`; a new database starts
 with two example feeds (feedhatch releases and The Go Blog). Each feed is fetched on
 its own interval (default 15 minutes), checked once a minute.
 
@@ -72,7 +72,7 @@ publishing.
 ## Development
 
 `-dev` (or `make run-dev` / `make run-headless-dev`) uses
-`~/.cache/feedhatch-dev/` and `$XDG_RUNTIME_DIR/feedhatch-dev.sock` instead of
+`~/.local/state/feedhatch-dev/`, `~/.cache/feedhatch-dev/` and `$XDG_RUNTIME_DIR/feedhatch-dev.sock` instead of
 the real database and socket, so it can run next to your real feedhatch without
 touching its data. `-mock` can't be combined with `-daemon`, since mock mode
 never fetches.
